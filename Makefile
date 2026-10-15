@@ -1,7 +1,7 @@
 PY := $(if $(wildcard adapters/.venv/bin/python),.venv/bin/python,python3)
 COMPOSE = docker compose -f infra/docker-compose.dev.yml --env-file .env
 
-.PHONY: up up-media down logs ps migrate seed seed-mock test test-adapters test-backend test-contracts contracts mock
+.PHONY: up up-media down logs ps migrate seed seed-mock test test-adapters test-backend test-contracts test-frontend contracts mock
 
 up:
 	$(COMPOSE) up -d
@@ -28,7 +28,7 @@ seed:
 seed-mock:
 	$(COMPOSE) exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' < db/seeds/mock-robots.sql
 
-test: test-contracts test-adapters test-backend
+test: test-contracts test-adapters test-backend test-frontend
 
 # 後端引用 packages/contracts 的編譯結果，改了 contracts 要先 build
 contracts:
@@ -42,6 +42,9 @@ test-adapters:
 
 test-backend: contracts
 	cd backend && npm test
+
+test-frontend:
+	cd frontend && npm test
 
 mock:
 	cd adapters && $(PY) -m mock.run --config mock/robots.yaml
