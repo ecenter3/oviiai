@@ -214,4 +214,9 @@ describe('急停與遙控鎖（PR #4 審查第 1、2 點）', () => {
     const none = setup({ state: 'estop' });
     expect(await code(none.svc.issue(ROBOT.id, 'estop_release', {}, user(OPS)))).toBe('OK');
   });
+
+  it('lift 列為移動類：別人遙控中、急停中都擋（PR #4 審查第 3 點）', async () => {
+    const { MOTION } = await import('./command-spec');
+    expect(MOTION.has('lift')).toBe(true);
+  });
 });

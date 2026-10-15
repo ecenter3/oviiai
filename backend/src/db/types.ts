@@ -126,8 +126,51 @@ export interface ChargersTable {
 
 export interface TasksTable {
   id: Generated<string>;
-  created_at: ColumnType<Date, never, never>;
+  code: string;
+  kind: string;
+  priority: string;
+  source: string;
+  floor_id: string;
+  target: ColumnType<Record<string, unknown>, string, string>;
+  robot_id: string | null;
+  pinned_robot: ColumnType<boolean, boolean | undefined, boolean>;
   status: string;
+  created_by: string | null;
+  approved_by: string | null;
+  approved_at: Timestamp | null;
+  reject_reason: string | null;
+  preempted_by: string | null;
+  progress: ColumnType<Record<string, unknown>, string | undefined, string>;
+  note: string | null;
+  created_at: ColumnType<Date, never, never>;
+  started_at: Timestamp | null;
+  ended_at: Timestamp | null;
+  fail_reason: string | null;
+}
+
+export interface TaskEventsTable {
+  id: Generated<string>;
+  task_id: string;
+  at: ColumnType<Date, never, never>;
+  type: string;
+  data: ColumnType<unknown, string | null, string | null>;
+}
+
+export interface PoisTable {
+  id: Generated<string>;
+  floor_id: string;
+  name: string;
+  x: number;
+  y: number;
+  yaw: number | null;
+}
+
+export interface PathsTable {
+  id: Generated<string>;
+  floor_id: string;
+  name: string;
+  points: ColumnType<{ x: number; y: number; yaw?: number }[], string, string>;
+  length_m: string;
 }
 
 export interface AlarmsTable {
@@ -140,6 +183,9 @@ export interface DB {
   cameras: CamerasTable;
   chargers: ChargersTable;
   tasks: TasksTable;
+  task_events: TaskEventsTable;
+  pois: PoisTable;
+  paths: PathsTable;
   alarms: AlarmsTable;
   floors: FloorsTable;
   robots: RobotsTable;

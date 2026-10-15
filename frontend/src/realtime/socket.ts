@@ -2,6 +2,7 @@ import { io, type Socket } from 'socket.io-client';
 import { getToken, refresh } from '../api/session';
 import { t } from '../i18n';
 import { type CmdResult, type RobotLive, type Stats, useRealtime } from '../stores/realtime';
+import { type Task, useTasks } from '../stores/tasks';
 import { useToast } from '../stores/toast';
 
 let socket: Socket | null = null;
@@ -52,6 +53,7 @@ export function connectRealtime(): void {
   );
   socket.on('robot.cmdResult', (m: CmdResult) => useRealtime.getState().addCmdResult(m));
   socket.on('stats.tick', (m: Stats) => useRealtime.getState().setStats(m));
+  socket.on('task.updated', (m: Task) => useTasks.getState().update(m));
   socket.on('teleop.revoked', (m: { code: string; by: string; reason: 'takeover' | 'estop' }) =>
     useToast
       .getState()

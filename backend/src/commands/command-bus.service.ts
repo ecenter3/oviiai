@@ -19,6 +19,8 @@ export interface CmdRecord {
   floor: string;
   type: CommandType;
   userId: string | null;
+  /** 派工送出的指令：對應的任務（結果用來推進任務狀態） */
+  taskId?: string;
   status: CmdStatus;
   sentAt: number;
   updatedAt: number;
@@ -30,7 +32,16 @@ export interface CmdRecord {
 export interface CmdResultOut {
   floor: string;
   userId: string | null;
-  data: { cmdId: string; robotId: string; code: string; type: string; status: Exclude<CmdStatus, 'timeout' | 'sent'>; error?: { code: string; msg: string }; result?: Record<string, unknown> };
+  data: {
+    cmdId: string;
+    robotId: string;
+    code: string;
+    type: string;
+    taskId?: string;
+    status: Exclude<CmdStatus, 'timeout' | 'sent'>;
+    error?: { code: string; msg: string };
+    result?: Record<string, unknown>;
+  };
 }
 
 const PENDING = 'cmd:pending';
@@ -38,6 +49,8 @@ const RECORD_TTL_SEC = 24 * 3600;
 const SWEEP_MS = 1_000;
 const TERMINAL: ReadonlySet<CmdStatus> = new Set(['rejected', 'done', 'failed']);
 const key = (cmdId: string) => `cmd:${cmdId}`;
+
+export const newCmdId = () => `c_${randomUUID()}`;
 
 /**
  * 指令匯流排（後端邏輯 §1）。send 產生 cmdId、發到 `rms/robot/{code}/cmd`、在 Redis 記錄；
@@ -81,17 +94,24 @@ export class CommandBus implements OnModuleInit, OnModuleDestroy {
     clearInterval(this.sweeper);
   }
 
-  async send(robot: RobotInfo, type: CommandType, args: Record<string, unknown>, userId: string | null): Promise<CmdRecord> {
+  async send(
+    robot: RobotInfo,
+    type: CommandType,
+    args: Record<string, unknown>,
+    userId: string | null,
+    opts: { taskId?: string; cmdId?: string } = {},
+  ): Promise<CmdRecord> {
     // MQTT 斷線時 mqtt.js 會把訊息排隊、重連後才送；導航類指令延遲執行很危險，直接拒絕
     if (!this.mqtt.connected) throw new AppError('ROBOT_OFFLINE', '與機器人的控制通道中斷，請稍後再試');
     const now = Date.now();
     const rec: CmdRecord = {
-      cmdId: `c_${randomUUID()}`,
+      cmdId: opts.cmdId ?? newCmdId(),
       robotId: robot.id,
       code: robot.code,
       floor: robot.floor,
       type,
       userId,
+      ...(opts.taskId && { taskId: opts.taskId }),
       status: 'sent',
       sentAt: now,
       updatedAt: now,
@@ -155,7 +175,7 @@ export class CommandBus implements OnModuleInit, OnModuleDestroy {
     this.results$.next({
       floor: r.floor,
       userId: r.userId,
-      data: { cmdId: r.cmdId, robotId: r.robotId, code: r.code, type: r.type, status, error: r.error, result: r.result },
+      data: { cmdId: r.cmdId, robotId: r.robotId, code: r.code, type: r.type, taskId: r.taskId, status, error: r.error, result: r.result },
     });
   }
 }

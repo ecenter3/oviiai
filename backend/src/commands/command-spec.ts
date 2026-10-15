@@ -44,7 +44,7 @@ export const USER_COMMAND_TYPES = Object.keys(USER_COMMANDS) as [UserCommandType
 /** 「停止」類：不受遙控鎖、離線、急停狀態限制（技術設計：任何檢查失敗都不能擋住停止類指令） */
 export const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(['estop', 'stop']);
 
-/** 會讓機器人移動或改變任務的指令：別人持有遙控鎖時擋下；急停中擋下 */
-export const MOTION: ReadonlySet<string> = new Set(['navigate', 'charge', 'pause', 'resume', 'follow']);
+/** 會讓機器人移動、改變任務或機身姿態的指令：別人持有遙控鎖時擋下；急停中擋下（lift：PR #4 審查第 3 點） */
+export const MOTION: ReadonlySet<string> = new Set(['navigate', 'charge', 'pause', 'resume', 'follow', 'lift']);
 
 export const COMMAND_PERMS = [...new Set(Object.values(USER_COMMANDS).map((c) => c.perm))] as [PermCode, ...PermCode[]];

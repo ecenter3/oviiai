@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { type Teleop, topics } from '@oviiai/contracts';
-import type { Subscription } from 'rxjs';
+import { Subject, type Subscription } from 'rxjs';
 import { z } from 'zod';
 import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
@@ -29,6 +29,11 @@ export type TeleopResult = 'ok' | 'not_holder' | 'not_found' | 'offline' | 'forb
 export class CommandsService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Commands');
   private sub?: Subscription;
+
+  /** 使用者對機器人下了指令（派工據此暫停或中止該台的任務） */
+  readonly issued$ = new Subject<{ robot: RobotInfo; type: UserCommandType; userId: string }>();
+  /** 遙控接管／歸還（接管時任務暫停，歸還後繼續；系統規格書 §4.3） */
+  readonly teleop$ = new Subject<{ robot: RobotInfo; acquired: boolean; userId: string }>();
 
   constructor(
     private readonly bus: CommandBus,
@@ -95,6 +100,7 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
     const rec = await this.bus.send(robot, type, parsed.data as Record<string, unknown>, actor.sub);
     // 急停：先送出指令（最優先），再釋放遙控鎖，讓遙控端立刻停送
     if (type === 'estop') await this.releaseOnEstop(robot, actor.username);
+    this.issued$.next({ robot, type, userId: actor.sub });
     return rec;
   }
 
@@ -144,6 +150,7 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
       }
     }
     await this.bus.send(robot, 'pause', {}, actor.sub);
+    this.teleop$.next({ robot, acquired: true, userId: actor.sub });
     return { lockId: holder.lockId, ttlSec: TELEOP_TTL_SEC };
   }
 
@@ -157,6 +164,7 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
     }
     await this.lock.release(robot.code, cur);
     if (this.fleet.get(robot.code)?.online) await this.bus.send(robot, 'resume', {}, actor.sub);
+    this.teleop$.next({ robot, acquired: false, userId: actor.sub });
   }
 
   /** WebSocket teleop.cmd（每 100 ms）：驗鎖、續期、轉發到 MQTT。不查資料庫 */

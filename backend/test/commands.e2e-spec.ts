@@ -291,6 +291,22 @@ describe.skipIf(!ready)('指令與遙控（e2e）', () => {
       await telemetry('idle');
     });
 
+    it('teleop.cmd 每個連線限制 20 Hz：一次灌 100 筆只轉發約 25 筆，回 RATE_LIMITED（PR #4 審查第 4 點）', async () => {
+      const lock = (await post(guard, '/teleop/acquire').expect(200)).body;
+      const s = connect(guard);
+      const errs: { code: string }[] = [];
+      s.on('teleop.error', (e) => errs.push(e));
+      await until(() => s.connected);
+      const n = teleops.length;
+      for (let i = 0; i < 100; i++) s.emit('teleop.cmd', { robotId, lockId: lock.lockId, vx: 0.01 * i, vy: 0, wz: 0 });
+      await until(() => errs.some((e) => e.code === 'RATE_LIMITED'));
+      await new Promise((r) => setTimeout(r, 300));
+      const forwarded = teleops.length - n;
+      expect(forwarded).toBeGreaterThan(0);
+      expect(forwarded).toBeLessThanOrEqual(25);
+      await post(guard, '/teleop/release').expect(204);
+    });
+
     it('急停中不能取鎖', async () => {
       await telemetry('estop');
       await post(guard, '/teleop/acquire').expect(409);

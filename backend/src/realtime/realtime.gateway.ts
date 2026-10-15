@@ -19,7 +19,9 @@ import type { Principal } from '../auth/principal';
 import { CommandBus } from '../commands/command-bus.service';
 import { CommandsService, type TeleopResult } from '../commands/commands.service';
 import { TeleopLock } from '../commands/teleop-lock.service';
+import { TasksService } from '../dispatch/tasks.service';
 import { FleetService } from '../fleet/fleet.service';
+import { TokenBucket } from './rate-limit';
 import { StatsService } from './stats.service';
 
 /** 看得到機器人即時狀態的頁面：實時監控、機器人狀態、實時遙控 */
@@ -34,7 +36,8 @@ interface SocketData {
   user: Principal;
   floors: string[];
   expiryTimer?: NodeJS.Timeout;
-  lastTeleopError?: TeleopResult;
+  lastTeleopError?: TeleopResult | 'rate_limited';
+  teleopBucket?: TokenBucket;
 }
 
 function wsError(code: string, message: string) {
@@ -46,7 +49,7 @@ function wsError(code: string, message: string) {
  * 驗證只在連線時做一次（PR #2 審查第 4 點）；access token 到期主動斷線，前端以新 token 重連。
  *
  * 伺服器 → 瀏覽器：robot.state、robot.online（fleet）、robot.cmdResult（指令匯流排）、teleop.revoked、teleop.error、
- *   stats.tick（每 5 秒，所有連線；連線時先送一次）
+ *   stats.tick（每 5 秒，所有連線；連線時先送一次）、task.updated（所有連線）
  * 瀏覽器 → 伺服器：subscribe {floors}、teleop.cmd {robotId, lockId, vx, vy, wz}
  */
 @WebSocketGateway({ path: '/ws', serveClient: false })
@@ -66,6 +69,7 @@ export class RealtimeGateway
     private readonly jwt: JwtService,
     private readonly users: AuthRepository,
     private readonly stats: StatsService,
+    private readonly tasks: TasksService,
   ) {}
 
   afterInit(server: Server) {
@@ -83,6 +87,8 @@ export class RealtimeGateway
         const rooms = [floorRoom(m.floor), ...(m.userId ? [userRoom(m.userId)] : [])];
         server.to(rooms).emit('robot.cmdResult', m.data);
       }),
+      // 任務更新推給所有連線（實時監控的派工任務面板顯示全部樓層；量很小）
+      this.tasks.changes$.subscribe((t) => server.emit('task.updated', t)),
       this.lock.revoked$.subscribe((m) =>
         server.to(userRoom(m.previous.userId)).emit('teleop.revoked', { robotId: m.robotId, code: m.code, by: m.by, reason: m.reason }),
       ),
@@ -137,6 +143,12 @@ export class RealtimeGateway
   @SubscribeMessage('teleop.cmd')
   async teleop(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
     const data = socket.data as SocketData;
+    data.teleopBucket ??= new TokenBucket(TELEOP_MAX_HZ, TELEOP_BURST);
+    if (!data.teleopBucket.take()) {
+      if (data.lastTeleopError !== 'rate_limited') socket.emit('teleop.error', { code: 'RATE_LIMITED', reason: 'rate_limited' });
+      data.lastTeleopError = 'rate_limited';
+      return;
+    }
     const r = await this.commands.teleop(data.user, body);
     if (r !== 'ok' && r !== data.lastTeleopError) socket.emit('teleop.error', { code: TELEOP_ERRORS[r], reason: r });
     data.lastTeleopError = r === 'ok' ? undefined : r;
@@ -184,6 +196,9 @@ export class RealtimeGateway
 }
 
 const STATS_MS = 5_000;
+/** teleop.cmd 每個連線上限（正常 10 Hz） */
+export const TELEOP_MAX_HZ = 20;
+const TELEOP_BURST = 5;
 
 const TELEOP_ERRORS: Record<Exclude<TeleopResult, 'ok'>, string> = {
   forbidden: 'FORBIDDEN',

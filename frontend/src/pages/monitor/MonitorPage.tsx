@@ -6,6 +6,7 @@ import { t, type MessageKey } from '../../i18n';
 import { type CmdResult, useRealtime } from '../../stores/realtime';
 import { useToast } from '../../stores/toast';
 import { type DrawerCommand, RobotDrawer } from './RobotDrawer';
+import { TasksPanel } from './TasksPanel';
 
 interface Floor {
   id: string;
@@ -130,23 +131,14 @@ export function MonitorPage() {
 
   return (
     <div className="monitor">
-      <section className="panel tasks" aria-label={t('monitor.tasks')}>
-        <div className="panel-head">{t('monitor.tasks')}</div>
-        <div className="scroll">
-          {(['review', 'pending', 'running'] as const).map((g) => (
-            <div key={g}>
-              <div className="group-title">
-                <span className={`ico ${g === 'review' ? 'approve' : g}`}>{g === 'review' ? '✎' : g === 'pending' ? '⏳' : '▶'}</span>
-                {t(`monitor.tasks.${g}` as MessageKey)} <span className="n">(0)</span>
-              </div>
-              <div className="empty">{t('monitor.tasks.empty')}</div>
-            </div>
-          ))}
-          <div className="empty">
-            <small>{t('monitor.tasks.notReady')}</small>
-          </div>
-        </div>
-      </section>
+      <TasksPanel
+        floorName={(id) => floors.data?.find((f) => f.id === id)?.name ?? id}
+        focusedRobotId={selected}
+        onFocusRobot={(task) => {
+          if (task.floorId !== fid) chooseFloor(task.floorId);
+          setSelected(task.robotId);
+        }}
+      />
 
       <section className="panel map" aria-label={floor?.name}>
         <div className="map-tools">
