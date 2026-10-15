@@ -25,6 +25,22 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      db:
+        image: timescale/timescaledb:2.28.3-pg16
+        env:
+          POSTGRES_USER: rms
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: rms
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rms -d rms"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://rms:ci@localhost:5432/rms
+      JWT_SECRET: ci-only-secret-ci-only-secret-ci-only
+      COOKIE_SECURE: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,6 +48,10 @@ jobs:
           node-version: '22'
       - run: npm install
       - run: npm run lint
+      # migration 必須可重複執行：up → 全部 down → 再 up
+      - run: npm run migrate
+      - run: npm run migrate:down -- 0
+      - run: npm run migrate
       - run: npm test
       - run: npm run build
 

@@ -81,7 +81,7 @@ cat <<EOF
   cd ~/oviiai
   make up                                  # 啟動基礎服務
   make mock                                # 模擬 6 台機器人
-  (cd backend && npm run start:dev)        # 後端 http://localhost:3000/api/health
+  (cd backend && npm run start:dev)        # 後端 http://localhost:3000/api/v1/health
   (cd frontend && npm run dev)             # 前端 http://localhost:5173
 管理介面：EMQX http://localhost:18083 ／ S3 檔案瀏覽 http://localhost:8888
 

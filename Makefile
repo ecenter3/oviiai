@@ -1,7 +1,7 @@
 PY := $(if $(wildcard adapters/.venv/bin/python),.venv/bin/python,python3)
 COMPOSE = docker compose -f infra/docker-compose.dev.yml --env-file .env
 
-.PHONY: up up-media down logs ps migrate test test-adapters test-backend mock
+.PHONY: up up-media down logs ps migrate seed test test-adapters test-backend mock
 
 up:
 	$(COMPOSE) up -d
@@ -20,6 +20,9 @@ ps:
 
 migrate:
 	cd backend && npm run migrate
+
+seed:
+	cd backend && npm run seed
 
 test: test-adapters test-backend
 
