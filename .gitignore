@@ -4,6 +4,9 @@ build/
 coverage/
 .env
 .env.*
+.env_*
+.env-*
+*.bak
 !.env.example
 __pycache__/
 *.pyc
