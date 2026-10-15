@@ -39,6 +39,7 @@ function setup(perms: string[]) {
       if (url.endsWith('/floors')) return json(FLOORS);
       if (url.includes('/cameras')) return json(url.includes('1f') ? [{ id: 'c1', code: 'CAM-1F-01', name: '1F 大門', floorId: '1f', x: 4, y: 32 }] : []);
       if (url.includes('/chargers')) return json([]);
+      if (url.startsWith('/api/v1/tasks?')) return json({ items: [], total: 0, page: 1, size: 100 });
       if (url.includes('/commands')) return json({ cmdId: 'c_1', status: 'sent' }, 202);
       return json({}, 404);
     }),

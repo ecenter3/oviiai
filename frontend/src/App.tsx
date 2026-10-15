@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { RequireLogin, RequirePage } from './components/RequirePage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitorPage } from './pages/monitor/MonitorPage';
+import { RobotsPage } from './pages/robots/RobotsPage';
 import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './pages/StatusPages';
 import { PAGES } from './routes';
 import { useAuth } from './stores/auth';
@@ -11,6 +12,7 @@ import { useAuth } from './stores/auth';
 /** 已實作的頁面；其餘顯示佔位頁 */
 const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/': MonitorPage,
+  '/robots': RobotsPage,
 };
 
 export function App() {
