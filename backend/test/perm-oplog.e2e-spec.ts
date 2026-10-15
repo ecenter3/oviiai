@@ -1,0 +1,271 @@
+/**
+ * T-05 權限 Guard、/me、使用者與角色；T-06 操作日誌。真的 PostgreSQL（需先 make migrate）。
+ */
+import { Test } from '@nestjs/testing';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/app.setup';
+import { hashPassword } from '../src/auth/password';
+import { ALL_PERMS } from '../src/auth/perms';
+import { loadEnv } from '../src/config';
+import { createDatabase, type Database } from '../src/db/database.module';
+
+loadEnv();
+const hasDb = !!process.env.DATABASE_URL;
+const tag = `pe${Date.now().toString(36)}`;
+const PW = 'Secret123';
+
+describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
+  let app: NestExpressApplication;
+  let db: Database;
+  let adminRoleId: string;
+  let testRoleId: string;
+  const createdUsers: string[] = [];
+  const createdRoles: string[] = [];
+  let admin: { id: string; token: string };
+  let guard: { id: string; token: string };
+
+  const http = () => request(app.getHttpServer());
+  const as = (token: string) => ({
+    get: (url: string) => http().get(url).set('Authorization', `Bearer ${token}`),
+    post: (url: string) => http().post(url).set('Authorization', `Bearer ${token}`),
+    patch: (url: string) => http().patch(url).set('Authorization', `Bearer ${token}`),
+    delete: (url: string) => http().delete(url).set('Authorization', `Bearer ${token}`),
+  });
+
+  async function insertUser(username: string, roleId: string) {
+    const u = await db
+      .insertInto('users')
+      .values({ username, display_name: username, password_hash: await hashPassword(PW), role_id: roleId })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    createdUsers.push(u.id);
+    return u.id;
+  }
+  async function login(username: string, password = PW) {
+    const r = await http().post('/api/v1/auth/login').send({ username, password }).expect(200);
+    return r.body.accessToken as string;
+  }
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET ||= 'e2e-secret-e2e-secret-e2e-secret-0';
+    process.env.COOKIE_SECURE = 'false';
+    db = createDatabase();
+    adminRoleId = (await db.selectFrom('roles').select('id').where('name', '=', '系統管理員').executeTakeFirstOrThrow()).id;
+    // 測試專用角色：一開始只有監控權限
+    testRoleId = (
+      await db
+        .insertInto('roles')
+        .values({ name: `${tag}-值班`, perms: ['monitor', 'robots'] })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+    ).id;
+    createdRoles.push(testRoleId);
+
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = mod.createNestApplication<NestExpressApplication>();
+    configureApp(app);
+    await app.init();
+
+    const adminId = await insertUser(`${tag}-admin`, adminRoleId);
+    admin = { id: adminId, token: await login(`${tag}-admin`) };
+    const guardId = await insertUser(`${tag}-guard`, testRoleId);
+    guard = { id: guardId, token: await login(`${tag}-guard`) };
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    if (db) {
+      await db.deleteFrom('op_logs').where('username', 'like', `${tag}-%`).execute();
+      if (createdUsers.length) await db.deleteFrom('users').where('id', 'in', createdUsers).execute();
+      await db.deleteFrom('roles').where('name', 'like', `${tag}-%`).execute();
+      await db.destroy();
+    }
+  });
+
+  it('種子角色的權限碼都在權限清單裡；系統管理員擁有全部', async () => {
+    const roles = await db.selectFrom('roles').select(['name', 'perms', 'is_system']).execute();
+    for (const r of roles) expect(r.perms.filter((p) => !ALL_PERMS.includes(p as never))).toEqual([]);
+    const sys = roles.find((r) => r.name === '系統管理員')!;
+    expect([...sys.perms].sort()).toEqual([...ALL_PERMS].sort());
+  });
+
+  it('GET /me 回傳目前使用者與權限碼', async () => {
+    const r = await as(guard.token).get('/api/v1/me').expect(200);
+    expect(r.body.user).toMatchObject({ id: guard.id, username: `${tag}-guard`, role: { id: testRoleId } });
+    expect(r.body.perms).toEqual(['monitor', 'robots']);
+  });
+
+  it('無權限回 403 FORBIDDEN，details 列出所需權限', async () => {
+    const r = await as(guard.token).get('/api/v1/oplogs').expect(403);
+    expect(r.body.error).toMatchObject({ code: 'FORBIDDEN', details: { required: ['oplog'] } });
+    await as(guard.token).get('/api/v1/users').expect(403);
+    await as(guard.token).get('/api/v1/roles').expect(403);
+    await as(guard.token).get('/api/v1/permissions').expect(403);
+  });
+
+  it('角色改權限即時生效：同一個 token，下一個請求就能用／不能用', async () => {
+    await as(admin.token).patch(`/api/v1/roles/${testRoleId}`).send({ perms: ['monitor', 'robots', 'oplog'] }).expect(200);
+    await as(guard.token).get('/api/v1/oplogs').expect(200);
+    expect((await as(guard.token).get('/api/v1/me')).body.perms).toContain('oplog');
+
+    await as(admin.token).patch(`/api/v1/roles/${testRoleId}`).send({ perms: ['monitor', 'robots'] }).expect(200);
+    await as(guard.token).get('/api/v1/oplogs').expect(403);
+  });
+
+  it('停用帳號後，尚未過期的 access token 立刻失效', async () => {
+    const id = await insertUser(`${tag}-temp`, testRoleId);
+    const token = await login(`${tag}-temp`);
+    await as(token).get('/api/v1/me').expect(200);
+    await as(admin.token).patch(`/api/v1/users/${id}`).send({ enabled: false }).expect(200);
+    const r = await as(token).get('/api/v1/me').expect(401);
+    expect(r.body.error.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('GET /permissions 回傳樹狀權限碼', async () => {
+    const r = await as(admin.token).get('/api/v1/permissions').expect(200);
+    expect(r.body.flatMap((g: { children: { code: string }[] }) => g.children.map((c) => c.code))).toEqual(ALL_PERMS);
+  });
+
+  describe('使用者管理', () => {
+    let userId: string;
+
+    it('新增、查詢、修改、重設密碼、刪除', async () => {
+      const created = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-new`, displayName: '新同仁', password: 'Abcd1234', roleId: testRoleId })
+        .expect(201);
+      userId = created.body.id;
+      createdUsers.push(userId);
+      expect(created.body).toMatchObject({ username: `${tag}-new`, role: { id: testRoleId }, enabled: true });
+      expect(created.body).not.toHaveProperty('passwordHash');
+
+      const list = await as(admin.token).get(`/api/v1/users?q=${tag}-new`).expect(200);
+      expect(list.body).toMatchObject({ total: 1, page: 1, size: 20 });
+
+      await as(admin.token).patch(`/api/v1/users/${userId}`).send({ displayName: '改名' }).expect(200);
+
+      const reset = await as(admin.token).post(`/api/v1/users/${userId}/reset-password`).expect(200);
+      expect(reset.body.tempPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+      await login(`${tag}-new`, reset.body.tempPassword);
+
+      await as(admin.token).delete(`/api/v1/users/${userId}`).expect(204);
+      await as(admin.token).get(`/api/v1/users/${userId}`).expect(404);
+    });
+
+    it('帳號重複、密碼不符規則、角色不存在回 400，details 標出欄位', async () => {
+      const dup = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-guard`, displayName: 'x', password: 'Abcd1234', roleId: testRoleId })
+        .expect(400);
+      expect(dup.body.error.details.fields).toHaveProperty('username');
+
+      const weak = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-weak`, displayName: 'x', password: 'abcdefgh', roleId: testRoleId })
+        .expect(400);
+      expect(weak.body.error.details.fields).toHaveProperty('password');
+
+      const noRole = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-norole`, displayName: 'x', password: 'Abcd1234', roleId: '00000000-0000-4000-8000-000000000000' })
+        .expect(400);
+      expect(noRole.body.error.details.fields).toHaveProperty('roleId');
+    });
+
+    it('不能停用、刪除自己或改自己的角色', async () => {
+      await as(admin.token).patch(`/api/v1/users/${admin.id}`).send({ enabled: false }).expect(409);
+      await as(admin.token).patch(`/api/v1/users/${admin.id}`).send({ roleId: testRoleId }).expect(409);
+      await as(admin.token).delete(`/api/v1/users/${admin.id}`).expect(409);
+    });
+
+    it('刪除帳號後操作日誌仍可依帳號查到', async () => {
+      const id = await insertUser(`${tag}-gone`, testRoleId);
+      await login(`${tag}-gone`);
+      await as(admin.token).delete(`/api/v1/users/${id}`).expect(204);
+      const r = await as(admin.token).get(`/api/v1/oplogs?user=${tag}-gone`).expect(200);
+      expect(r.body.items[0]).toMatchObject({ username: `${tag}-gone`, userId: null, action: 'auth.login' });
+    });
+  });
+
+  describe('角色管理', () => {
+    it('新增、改名、刪除；未知權限碼回 400', async () => {
+      const bad = await as(admin.token).post('/api/v1/roles').send({ name: `${tag}-x`, perms: ['nope'] }).expect(400);
+      expect(bad.body.error.code).toBe('VALIDATION_FAILED');
+
+      const r = await as(admin.token)
+        .post('/api/v1/roles')
+        .send({ name: `${tag}-巡檢`, perms: ['robots', 'monitor', 'monitor'] })
+        .expect(201);
+      expect(r.body).toMatchObject({ perms: ['monitor', 'robots'], isSystem: false, memberCount: 0 });
+
+      await as(admin.token).patch(`/api/v1/roles/${r.body.id}`).send({ name: `${tag}-巡檢2` }).expect(200);
+      await as(admin.token).delete(`/api/v1/roles/${r.body.id}`).expect(204);
+    });
+
+    it('系統角色不可刪、不可改權限；有成員的角色不可刪', async () => {
+      await as(admin.token).delete(`/api/v1/roles/${adminRoleId}`).expect(409);
+      await as(admin.token).patch(`/api/v1/roles/${adminRoleId}`).send({ perms: ['monitor'] }).expect(409);
+      const r = await as(admin.token).delete(`/api/v1/roles/${testRoleId}`).expect(409);
+      expect(r.body.error.details.memberCount).toBeGreaterThan(0);
+    });
+  });
+
+  describe('操作日誌', () => {
+    it('@OpLog 記錄人、動作、對象、IP、成功與否，密碼不入日誌', async () => {
+      const created = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-log`, displayName: 'log', password: 'Abcd1234', roleId: testRoleId })
+        .expect(201);
+      createdUsers.push(created.body.id);
+      await as(admin.token).delete(`/api/v1/roles/${adminRoleId}`).expect(409);
+
+      const r = await as(admin.token).get(`/api/v1/oplogs?user=${tag}-admin&size=50`).expect(200);
+      const create = r.body.items.find((i: { action: string }) => i.action === 'user.create');
+      expect(create).toMatchObject({ target: `user:${created.body.id}`, detail: { ok: true } });
+      expect(create.ip).toBeTruthy();
+      expect(create.detail.body.password).toBe('***');
+      expect(JSON.stringify(r.body.items)).not.toContain('Abcd1234');
+
+      const failed = r.body.items.find((i: { action: string }) => i.action === 'role.delete');
+      expect(failed).toMatchObject({ target: `role:${adminRoleId}`, detail: { ok: false, error: 'INVALID_STATE' } });
+    });
+
+    it('依動作前綴、時間篩選與分頁', async () => {
+      const r = await as(admin.token).get(`/api/v1/oplogs?user=${tag}-admin&action=user.*&size=1`).expect(200);
+      expect(r.body.size).toBe(1);
+      expect(r.body.items).toHaveLength(1);
+      expect(r.body.total).toBeGreaterThan(1);
+      expect(r.body.items[0].action).toMatch(/^user\./);
+
+      const future = new Date(Date.now() + 3600_000).toISOString();
+      const none = await as(admin.token).get(`/api/v1/oplogs?user=${tag}-admin&from=${future}`).expect(200);
+      expect(none.body.total).toBe(0);
+
+      await as(admin.token).get('/api/v1/oplogs?from=yesterday').expect(400);
+    });
+
+    it('?format=csv 匯出：BOM、中文欄名、台北時間', async () => {
+      const r = await as(admin.token)
+        .get(`/api/v1/oplogs?user=${tag}-admin&format=csv`)
+        .buffer(true)
+        .parse((res, cb) => {
+          let s = '';
+          res.setEncoding('utf8');
+          res.on('data', (c: string) => (s += c));
+          res.on('end', () => cb(null, s));
+        })
+        .expect(200);
+      expect(r.headers['content-type']).toMatch(/text\/csv/);
+      expect(r.headers['content-disposition']).toMatch(/attachment; filename="oplogs-\d{8}\.csv"/);
+      const text = r.body as string;
+      expect(text.charCodeAt(0)).toBe(0xfeff);
+      const lines = text.slice(1).trim().split('\r\n');
+      expect(lines[0]).toBe('時間,帳號,動作,對象,結果,IP,內容');
+      expect(lines.length).toBeGreaterThan(2);
+      expect(lines[1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\+08:00,/);
+    });
+  });
+});

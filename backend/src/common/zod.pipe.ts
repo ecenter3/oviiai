@@ -2,8 +2,8 @@ import { PipeTransform } from '@nestjs/common';
 import type { ZodType, ZodTypeDef } from 'zod';
 import { AppError } from './errors';
 
-/** `@Body(new ZodBody(schema))`：驗證失敗回 400 VALIDATION_FAILED，details 列出欄位 */
-export class ZodBody<T> implements PipeTransform<unknown, T> {
+/** `@Body(new ZodPipe(schema))`、`@Query(new ZodPipe(schema))`：驗證失敗回 400 VALIDATION_FAILED，details 列出欄位 */
+export class ZodPipe<T> implements PipeTransform<unknown, T> {
   constructor(private readonly schema: ZodType<T, ZodTypeDef, unknown>) {}
 
   transform(value: unknown): T {

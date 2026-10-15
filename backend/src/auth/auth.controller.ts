@@ -2,10 +2,11 @@ import { Body, Controller, HttpCode, Inject, Post, Put, Req, Res } from '@nestjs
 import type { CookieOptions, Request, Response } from 'express';
 import { z } from 'zod';
 import type { AuthConfig } from '../config';
-import { ZodBody } from '../common/zod-body.pipe';
+import { ZodPipe } from '../common/zod.pipe';
 import { AUTH_CONFIG, AuthService, type AccessPayload } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import { PasswordPolicy } from './password';
+import { Authenticated } from './perm.decorator';
 import { Public } from './public.decorator';
 import { REFRESH_COOKIE, REFRESH_COOKIE_PATH } from './refresh-token';
 
@@ -34,7 +35,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(
-    @Body(new ZodBody(LoginBody)) body: z.infer<typeof LoginBody>,
+    @Body(new ZodPipe(LoginBody)) body: z.infer<typeof LoginBody>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
@@ -57,6 +58,7 @@ export class AuthController {
     }
   }
 
+  @Authenticated()
   @Post('logout')
   @HttpCode(204)
   async logout(@CurrentUser() user: AccessPayload, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
@@ -64,11 +66,12 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, this.cookie);
   }
 
+  @Authenticated()
   @Put('password')
   @HttpCode(204)
   async changePassword(
     @CurrentUser() user: AccessPayload,
-    @Body(new ZodBody(ChangePasswordBody)) body: z.infer<typeof ChangePasswordBody>,
+    @Body(new ZodPipe(ChangePasswordBody)) body: z.infer<typeof ChangePasswordBody>,
     @Req() req: Request,
   ) {
     await this.auth.changePassword(user, body.oldPassword, body.newPassword, req.cookies?.[REFRESH_COOKIE], req.ip ?? null);

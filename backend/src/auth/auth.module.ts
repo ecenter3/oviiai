@@ -6,7 +6,8 @@ import { OpLogModule } from '../oplog/oplog.module';
 import { AuthController } from './auth.controller';
 import { AuthRepository } from './auth.repository';
 import { AUTH_CONFIG, AuthService } from './auth.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { AuthGuard } from './auth.guard';
+import { MeController } from './me.controller';
 
 @Module({
   imports: [
@@ -15,12 +16,13 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     }),
     OpLogModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, MeController],
   providers: [
     AuthService,
     AuthRepository,
     { provide: AUTH_CONFIG, useFactory: authConfig },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
   ],
+  exports: [AuthRepository],
 })
 export class AuthModule {}
