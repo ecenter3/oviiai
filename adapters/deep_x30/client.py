@@ -73,7 +73,7 @@ class X30Client:
                         log.debug("unsolicited message seq=%s", seq)
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.warning("X30 %s link lost: %s", self.host, e)
             if self._writer:
                 self._writer.close()

@@ -91,7 +91,7 @@ class Bridge:
             if not d.connected:
                 try:
                     await d.connect()
-                except Exception as e:  # noqa: BLE001 — 連線失敗只記錄，下一輪重試
+                except Exception as e:  # 連線失敗只記錄，下一輪重試
                     log.warning("%s connect failed: %s", d.code, e)
             if d.connected != was_online:
                 was_online = d.connected
@@ -101,7 +101,7 @@ class Bridge:
                 try:
                     t = await d.read_telemetry()
                     await self.publish(topics.telemetry(d.code), _json(t))
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     log.warning("%s telemetry failed: %s", d.code, e)
             await asyncio.sleep(TELEMETRY_PERIOD_S)
 
@@ -174,12 +174,12 @@ class Bridge:
             await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="done", result=result))
         except CommandError as e:
             await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed", error=AckError(code=e.code, msg=e.msg)))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed",
                                         error=AckError(code="TIMEOUT", msg=f"exceeded {cmd.timeoutSec}s")))
         except asyncio.CancelledError:
             await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed",
                                         error=AckError(code="CANCELLED", msg="superseded by a newer command")))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("%s cmd %s crashed", d.code, cmd.cmdId)
             await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed", error=AckError(code="INTERNAL", msg=str(e))))

@@ -5,7 +5,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .contracts import Command, RobotEvent, Teleop, Telemetry
+from .contracts import Command, RobotEvent, Telemetry, Teleop
 from .transform import Affine2D
 
 

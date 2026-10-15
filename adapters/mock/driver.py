@@ -9,7 +9,7 @@ import math
 import random
 from typing import Any
 
-from common.contracts import Battery, Command, Pose, RobotEvent, Teleop, Telemetry
+from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop
 from common.driver import CommandError, RobotDriver
 
 TICK_S = 0.1
