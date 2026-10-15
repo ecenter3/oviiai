@@ -35,6 +35,16 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
   /** 遙控接管／歸還（接管時任務暫停，歸還後繼續；系統規格書 §4.3） */
   readonly teleop$ = new Subject<{ robot: RobotInfo; acquired: boolean; userId: string }>();
 
+  /**
+   * 歸還遙控時要不要送 resume。派工註冊：機器人有「因遙控暫停」的平台任務時不送，
+   * 由派工重新送 navigate／patrol 接續（PR #6 審查第 2 點：真機 resume 會接續舊導航，
+   * 同時任務又回佇列，可能被派給另一台）。
+   */
+  private resumeOnRelease: (robot: RobotInfo) => Promise<boolean> = async () => true;
+  setResumeOnRelease(fn: (robot: RobotInfo) => Promise<boolean>) {
+    this.resumeOnRelease = fn;
+  }
+
   constructor(
     private readonly bus: CommandBus,
     private readonly lock: TeleopLock,
@@ -163,7 +173,9 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
       throw new AppError('TELEOP_LOCKED', `${robot.code} 正由 ${cur.username} 遙控中`, { holder: cur.username });
     }
     await this.lock.release(robot.code, cur);
-    if (this.fleet.get(robot.code)?.online) await this.bus.send(robot, 'resume', {}, actor.sub);
+    if (this.fleet.get(robot.code)?.online && (await this.resumeOnRelease(robot))) {
+      await this.bus.send(robot, 'resume', {}, actor.sub);
+    }
     this.teleop$.next({ robot, acquired: false, userId: actor.sub });
   }
 

@@ -119,3 +119,60 @@ async def test_mock_driver_refuses_teleop_when_estopped(setup):
     with pytest.raises(CommandError) as e:
         await d.teleop(Teleop(lockId="L", vx=1, vy=0, wz=0, ts=now_ms()))
     assert e.value.code == "ESTOP"
+
+
+async def test_pause_holds_navigation_and_resume_continues(setup):
+    """PR #6 審查第 2 點：pause 停在原地、指令不結束；resume 接續原本的導航並以原 cmdId 回 done"""
+    b, d = setup
+    d.max_speed = 2.0
+    await b.on_message("rms/robot/B2-001/cmd", cmd("nav", "navigate", x=3, y=0))
+    await asyncio.sleep(0.3)
+    await b.on_message("rms/robot/B2-001/cmd", cmd("p", "pause"))
+    await asyncio.wait_for(b._side["B2-001"], 1)
+    x_paused = d.x
+    assert d.state == "paused" and 0 < x_paused < 3
+    await asyncio.sleep(0.4)
+    assert d.x == pytest.approx(x_paused)          # 停在原地
+    assert ("nav", "done", None) not in b.acks()  # 導航指令還沒結束
+
+    await b.on_message("rms/robot/B2-001/cmd", cmd("r", "resume"))
+    await asyncio.sleep(0.05)
+    assert d.state == "navigating"
+    await asyncio.wait_for(b._running["B2-001"], 3)
+    assert ("nav", "done", None) in b.acks()
+    assert d.x == pytest.approx(3, abs=0.06)
+
+
+async def test_teleop_during_pause_then_resume_continues_from_new_position(setup):
+    b, d = setup
+    d.max_speed = 2.0
+    await b.on_message("rms/robot/B2-001/cmd", cmd("nav", "navigate", x=3, y=0))
+    await asyncio.sleep(0.2)
+    await b.on_message("rms/robot/B2-001/cmd", cmd("p", "pause"))
+    await asyncio.wait_for(b._side["B2-001"], 1)
+    t = json.dumps({"lockId": "L", "vx": 0, "vy": 1.0, "wz": 0, "ts": now_ms()})
+    await b.on_message("rms/robot/B2-001/teleop", t)
+    await asyncio.sleep(0.3)
+    assert d.state == "teleop" and d.y > 0.1
+    await d.stop_motion()
+    assert d.state == "paused"                     # 遙控結束回到暫停（導航仍在）
+    await b.on_message("rms/robot/B2-001/cmd", cmd("r", "resume"))
+    await asyncio.wait_for(b._running["B2-001"], 3)
+    assert ("nav", "done", None) in b.acks()
+    assert (d.x, d.y) == (pytest.approx(3, abs=0.06), pytest.approx(0, abs=0.06))
+
+
+async def test_new_navigate_after_pause_supersedes_old(setup):
+    """pause 不取代目前導航；之後的 navigate 會取消舊導航（舊的回 CANCELLED），不會兩個同時跑"""
+    b, d = setup
+    d.max_speed = 2.0
+    await b.on_message("rms/robot/B2-001/cmd", cmd("old", "navigate", x=3, y=0))
+    await asyncio.sleep(0.2)
+    await b.on_message("rms/robot/B2-001/cmd", cmd("p", "pause"))
+    await asyncio.wait_for(b._side["B2-001"], 1)
+    await b.on_message("rms/robot/B2-001/cmd", cmd("new", "navigate", x=0, y=2))
+    await asyncio.wait_for(b._running["B2-001"], 3)
+    await asyncio.sleep(0.05)
+    assert ("old", "failed", "CANCELLED") in b.acks()
+    assert ("new", "done", None) in b.acks()
+    assert (d.x, d.y) == (pytest.approx(0, abs=0.06), pytest.approx(2, abs=0.06))

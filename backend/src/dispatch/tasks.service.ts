@@ -3,6 +3,7 @@ import type Redis from 'ioredis';
 import { sql, type Transaction } from 'kysely';
 import { Subject } from 'rxjs';
 import { AppError } from '../common/errors';
+import { PG_UNIQUE_VIOLATION, pgCode } from '../common/pg-errors';
 import type { Paged } from '../common/pagination';
 import { KYSELY, type Database } from '../db/database.module';
 import type { DB } from '../db/types';
@@ -26,9 +27,13 @@ export interface TaskView {
   pinnedRobot: boolean;
   status: TaskStatus;
   createdBy: string | null;
+  createdByName: string | null;
   approvedBy: string | null;
+  approvedByName: string | null;
   approvedAt: string | null;
   rejectReason: string | null;
+  /** 被哪筆 P1 中斷 */
+  preemptedBy: string | null;
   progress: TaskProgress;
   note: string | null;
   createdAt: string;
@@ -44,9 +49,13 @@ export interface TaskProgress {
   wpIndex?: number;
   loop?: number;
   attempts?: number;
+  /** 續做時保留給原本那台到這個時間（ms），避免別台搶走 */
+  reservedUntil?: number | null;
+  /** P1 沒有可用機器人時記錄時間（告警只發一次） */
+  noRobotAt?: number | null;
 }
 
-export type PauseReason = 'offline' | 'estop' | 'teleop' | 'charge';
+export type PauseReason = 'offline' | 'estop' | 'teleop' | 'charge' | 'preempt';
 
 export interface CreateTask {
   kind: string;
@@ -75,6 +84,7 @@ type Patch = Partial<{
   approved_by: string;
   approved_at: Date;
   reject_reason: string;
+  preempted_by: string | null;
 }>;
 
 /**
@@ -92,7 +102,8 @@ export class TasksService {
     private readonly registry: RobotRegistry,
   ) {}
 
-  async create(dto: CreateTask, userId: string | null): Promise<TaskView> {
+  async create(dto: CreateTask, actor: { id: string; username: string } | null): Promise<TaskView> {
+    const userId = actor?.id ?? null;
     await this.validateTarget(dto.floorId, dto.target);
     if (dto.robotId) {
       const r = await this.registry.resolveId(dto.robotId);
@@ -107,10 +118,11 @@ export class TasksService {
         approvalUntil: ((await this.settings.get('dispatch.approvalUntil')) as string | undefined) ?? null,
       },
     );
-    const { id } = await this.db
-      .insertInto('tasks')
-      .values({
-        code: await this.nextCode(),
+    const id = await this.insertWithCode((code) =>
+      this.db
+        .insertInto('tasks')
+        .values({
+          code,
         kind: dto.kind,
         priority: dto.priority,
         source,
@@ -119,12 +131,14 @@ export class TasksService {
         robot_id: dto.robotId ?? null,
         pinned_robot: !!dto.robotId,
         status,
-        created_by: userId,
-        note: dto.note ?? null,
-      })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-    await this.event(this.db, id, 'created', { status, by: userId });
+          created_by: userId,
+          note: dto.note ?? null,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+        .then((r) => r.id),
+    );
+    await this.event(this.db, id, 'created', { status, by: actor?.username ?? null });
     const view = await this.get(id);
     this.changes$.next(view);
     return view;
@@ -166,21 +180,49 @@ export class TasksService {
     return rows.map(view);
   }
 
+  /** 全部暫停中的任務（保底掃描檢查暫停原因是否還成立） */
+  async paused(): Promise<TaskView[]> {
+    return (await this.query().where('t.status', '=', 'paused').execute()).map(view);
+  }
+
+  /** 被某筆 P1 中斷的任務 */
+  async preemptedBy(p1Id: string): Promise<TaskView[]> {
+    return (await this.query().where('t.preempted_by', '=', p1Id).where('t.status', '=', 'paused').execute()).map(view);
+  }
+
+  async pendingApproval(): Promise<TaskView[]> {
+    return (await this.query().where('t.status', '=', 'pending_approval').orderBy('t.created_at').execute()).map(view);
+  }
+
+  /** 只改 progress，不改狀態（例：暫停原因由遙控改為急停）；狀態不符就不改 */
+  async patchProgress(id: string, progress: TaskProgress, status: TaskStatus): Promise<TaskView | null> {
+    const r = await this.db
+      .updateTable('tasks')
+      .set({ progress: sql`progress || ${JSON.stringify(progress)}::jsonb` as unknown as string })
+      .where('id', '=', id)
+      .where('status', '=', status)
+      .executeTakeFirst();
+    if (!r.numUpdatedRows) return null;
+    const v = await this.get(id);
+    this.changes$.next(v);
+    return v;
+  }
+
   /** 某台機器人的任務（依狀態） */
   async byRobot(robotId: string, statuses: readonly TaskStatus[]): Promise<TaskView[]> {
     const rows = await this.query().where('t.robot_id', '=', robotId).where('t.status', 'in', [...statuses]).execute();
     return rows.map(view);
   }
 
-  /** 已有 assigned／running 任務的機器人 */
-  async busyRobots(): Promise<Set<string>> {
+  /** 已有 assigned／running 任務的機器人 → 那筆任務 */
+  async occupiedRobots(): Promise<Map<string, { taskId: string; priority: Priority }>> {
     const rows = await this.db
       .selectFrom('tasks')
-      .select('robot_id')
+      .select(['robot_id', 'id', 'priority'])
       .where('status', 'in', ['assigned', 'running'])
       .where('robot_id', 'is not', null)
       .execute();
-    return new Set(rows.map((r) => r.robot_id!));
+    return new Map(rows.map((r) => [r.robot_id!, { taskId: r.id, priority: r.priority as Priority }]));
   }
 
   /**
@@ -268,6 +310,21 @@ export class TasksService {
     }
   }
 
+  /**
+   * 以任務代碼新增；代碼重複（例如 Redis 流水號因重啟遺失而從 1 重來）時，
+   * 改以資料庫當天最大編號 + 1 重設流水號再試（PR #6 審查第 4 點）。tasks.code 有 UNIQUE 約束。
+   */
+  private async insertWithCode(insert: (code: string) => Promise<string>): Promise<string> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await insert(await this.nextCode());
+      } catch (e) {
+        if (pgCode(e) !== PG_UNIQUE_VIOLATION || attempt >= 4) throw e;
+        await this.resyncCode();
+      }
+    }
+  }
+
   /** T-20261015-0042：台北日期＋當日流水號 */
   private async nextCode(): Promise<string> {
     const day = taipeiDate().replace(/-/g, '');
@@ -277,8 +334,34 @@ export class TasksService {
     return `T-${day}-${String(n).padStart(4, '0')}`;
   }
 
+  /** 把 Redis 流水號對齊資料庫當天最大編號（之後 INCR 會從最大值 + 1 開始） */
+  async resyncCode(): Promise<void> {
+    const day = taipeiDate().replace(/-/g, '');
+    const row = await this.db
+      .selectFrom('tasks')
+      .select((eb) => eb.fn.max('code').as('max'))
+      .where('code', 'like', `T-${day}-%`)
+      .executeTakeFirst();
+    const max = row?.max ? Number(String(row.max).slice(-4)) : 0;
+    const k = `task:seq:${day}`;
+    // 只往上調：其他程序同時 INCR 過也不會倒退
+    await this.redis.eval(
+      `local cur = tonumber(redis.call('get', KEYS[1]) or '0'); if cur < tonumber(ARGV[1]) then redis.call('set', KEYS[1], ARGV[1]) end; redis.call('expire', KEYS[1], ARGV[2]); return 1`,
+      1,
+      k,
+      String(max),
+      String(3 * 86400),
+    );
+  }
+
   private query() {
-    return this.db.selectFrom('tasks as t').leftJoin('robots as r', 'r.id', 't.robot_id').selectAll('t').select('r.code as robot_code');
+    return this.db
+      .selectFrom('tasks as t')
+      .leftJoin('robots as r', 'r.id', 't.robot_id')
+      .leftJoin('users as cu', 'cu.id', 't.created_by')
+      .leftJoin('users as au', 'au.id', 't.approved_by')
+      .selectAll('t')
+      .select(['r.code as robot_code', 'cu.display_name as created_by_name', 'au.display_name as approved_by_name']);
   }
 }
 
@@ -312,9 +395,12 @@ function view(r: Row): TaskView {
     pinnedRobot: r.pinned_robot,
     status: r.status as TaskStatus,
     createdBy: r.created_by,
+    createdByName: r.created_by_name ?? null,
     approvedBy: r.approved_by,
+    approvedByName: r.approved_by_name ?? null,
     approvedAt: iso(r.approved_at),
     rejectReason: r.reject_reason,
+    preemptedBy: r.preempted_by,
     progress: (r.progress ?? {}) as TaskProgress,
     note: r.note,
     createdAt: r.created_at.toISOString(),

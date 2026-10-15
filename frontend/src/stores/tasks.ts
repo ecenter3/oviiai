@@ -14,11 +14,26 @@ export interface Task {
   pinnedRobot: boolean;
   status: 'pending_approval' | 'queued' | 'assigned' | 'running' | 'paused' | 'done' | 'cancelled' | 'failed' | 'rejected';
   note: string | null;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
+  rejectReason?: string | null;
+  /** 被哪筆 P1 中斷 */
+  preemptedBy?: string | null;
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
   failReason: string | null;
-  progress: { pausedBy?: string | null };
+  progress: { pausedBy?: string | null; noRobotAt?: number | null };
+}
+
+/** GET /dispatch/mode */
+export interface DispatchMode {
+  approval: boolean;
+  approvalSetting: boolean;
+  approvalUntil: string | null;
+  p1Preempt: boolean;
 }
 
 export const ACTIVE_STATUSES: Task['status'][] = ['pending_approval', 'queued', 'assigned', 'running', 'paused'];

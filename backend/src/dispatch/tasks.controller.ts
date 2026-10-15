@@ -67,7 +67,7 @@ export class TasksController {
   @RequirePerm('op.dispatch')
   @OpLog('task.create', (_req, res) => taskTarget((res as { id?: string } | undefined)?.id))
   async create(@Body(new ZodPipe(CreateTaskBody)) body: z.infer<typeof CreateTaskBody>, @CurrentUser() actor: Principal) {
-    const t = await this.tasks.create(body, actor.sub);
+    const t = await this.tasks.create(body, { id: actor.sub, username: actor.username });
     return { id: t.id, code: t.code, status: t.status };
   }
 
