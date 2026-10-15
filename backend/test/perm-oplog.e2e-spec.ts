@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { hashPassword } from '../src/auth/password';
-import { ALL_PERMS } from '../src/auth/perms';
+import { ALL_PERMS } from '@oviiai/contracts';
 import { loadEnv } from '../src/config';
 import { createDatabase, type Database } from '../src/db/database.module';
 
@@ -266,6 +266,60 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
       expect(lines[0]).toBe('時間,帳號,動作,對象,結果,IP,內容');
       expect(lines.length).toBeGreaterThan(2);
       expect(lines[1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\+08:00,/);
+    });
+  });
+
+  describe('權限提升防護（PR #2 審查第 1 點）', () => {
+    let mgr: string;
+    let mgrRoleId: string;
+
+    beforeAll(async () => {
+      // 主管類角色：可管帳號與角色，但沒有 oplog、op.* 等權限
+      mgrRoleId = (
+        await db
+          .insertInto('roles')
+          .values({ name: `${tag}-主管`, perms: ['monitor', 'robots', 'users', 'roles'] })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+      ).id;
+      await insertUser(`${tag}-mgr`, mgrRoleId);
+      mgr = await login(`${tag}-mgr`);
+    });
+
+    it('只能授予自己擁有的權限：新角色、角色加權限', async () => {
+      const r = await as(mgr).post('/api/v1/roles').send({ name: `${tag}-越權`, perms: ['monitor', 'oplog'] }).expect(403);
+      expect(r.body.error).toMatchObject({ code: 'FORBIDDEN', details: { missing: ['oplog'] } });
+
+      const ok = await as(mgr).post('/api/v1/roles').send({ name: `${tag}-巡查`, perms: ['monitor'] }).expect(201);
+      await as(mgr).patch(`/api/v1/roles/${ok.body.id}`).send({ perms: ['monitor', 'op.estop'] }).expect(403);
+      await as(mgr).patch(`/api/v1/roles/${ok.body.id}`).send({ perms: ['monitor', 'robots'] }).expect(200);
+    });
+
+    it('移除自己沒有的權限不算提升', async () => {
+      const r = await as(admin.token).post('/api/v1/roles').send({ name: `${tag}-含急停`, perms: ['monitor', 'op.estop'] }).expect(201);
+      await as(mgr).patch(`/api/v1/roles/${r.body.id}`).send({ perms: ['monitor'] }).expect(200);
+    });
+
+    it('只有系統角色成員可以指派系統角色', async () => {
+      await as(mgr)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-wannabe`, displayName: 'x', password: 'Abcd1234', roleId: adminRoleId })
+        .expect(403);
+      await as(mgr).patch(`/api/v1/users/${guard.id}`).send({ roleId: adminRoleId }).expect(403);
+
+      const ok = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-promoted`, displayName: 'x', password: 'Abcd1234', roleId: adminRoleId })
+        .expect(201);
+      createdUsers.push(ok.body.id);
+    });
+
+    it('不能重設、停用、刪除權限比自己高的帳號（避免冒用管理員）', async () => {
+      await as(mgr).post(`/api/v1/users/${admin.id}/reset-password`).expect(403);
+      await as(mgr).patch(`/api/v1/users/${admin.id}`).send({ enabled: false }).expect(403);
+      await as(mgr).delete(`/api/v1/users/${admin.id}`).expect(403);
+      // 權限範圍內的帳號照常可管
+      await as(mgr).post(`/api/v1/users/${guard.id}/reset-password`).expect(200);
     });
   });
 });

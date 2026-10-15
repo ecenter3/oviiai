@@ -1,0 +1,92 @@
+{
+  "$comment": "T-07 訊息格式一致性：packages/contracts（zod）與 adapters/common/contracts.py（pydantic）都必須接受 valid、拒絕 invalid，enums 必須與兩邊定義完全相同。改格式時先改這裡。",
+  "enums": {
+    "RobotState": ["idle", "navigating", "patrolling", "teleop", "returning", "charging", "paused", "estop", "fault", "offline"],
+    "EventType": ["fault", "fault_cleared", "waypoint_reached", "goal_reached", "goal_failed", "charge_started", "charge_finished", "estop_pressed", "sos", "obstacle_blocked"],
+    "CommandType": ["navigate", "patrol", "stop", "pause", "resume", "estop", "estop_release", "charge", "ptz", "light", "snapshot", "record_start", "record_stop", "speak", "follow", "follow_stop", "set_params", "lift"],
+    "AckStatus": ["accepted", "rejected", "done", "failed"]
+  },
+  "messages": {
+    "Telemetry": {
+      "valid": [
+        {"ts": 1792053940785, "pose": {"x": 12.4, "y": 30.1, "yaw": 1.57, "floor": "b1"}, "battery": {"pct": 62.5, "charging": false}, "state": "idle", "faults": []},
+        {"ts": 1792053940785, "pose": {"x": 0, "y": 0, "yaw": -3.14, "floor": "1f"}, "battery": {"pct": 100, "charging": true, "voltage": 54.2}, "state": "charging", "speed": 0, "taskRef": null, "faults": [{"code": "X30_41802", "level": 1, "msg": "上位機斷線"}], "net": {"rssi": -62, "latencyMs": 18}},
+        {"ts": 1792053940785, "pose": {"x": 3, "y": 4, "yaw": 0, "floor": "2f"}, "battery": {"pct": 0, "charging": false}, "state": "fault", "taskRef": "c_8f2a", "sensors": {"temp": {"value": 24.5, "unit": "°C"}}},
+        {"ts": 1792053940785, "pose": {"x": 3, "y": 4, "yaw": 0, "floor": "2f"}, "battery": {"pct": 50, "charging": false}, "state": "patrolling", "net": {}}
+      ],
+      "invalid": [
+        {"$why": "電量超過 100", "ts": 1792053940785, "pose": {"x": 0, "y": 0, "yaw": 0, "floor": "1f"}, "battery": {"pct": 101, "charging": false}, "state": "idle"},
+        {"$why": "未知狀態", "ts": 1792053940785, "pose": {"x": 0, "y": 0, "yaw": 0, "floor": "1f"}, "battery": {"pct": 50, "charging": false}, "state": "sleeping"},
+        {"$why": "缺 pose", "ts": 1792053940785, "battery": {"pct": 50, "charging": false}, "state": "idle"},
+        {"$why": "pose 缺 floor", "ts": 1792053940785, "pose": {"x": 0, "y": 0, "yaw": 0}, "battery": {"pct": 50, "charging": false}, "state": "idle"},
+        {"$why": "故障等級只能 1–3", "ts": 1792053940785, "pose": {"x": 0, "y": 0, "yaw": 0, "floor": "1f"}, "battery": {"pct": 50, "charging": false}, "state": "fault", "faults": [{"code": "E1", "level": 4, "msg": "x"}]},
+        {"$why": "座標是字串", "ts": 1792053940785, "pose": {"x": "1", "y": 0, "yaw": 0, "floor": "1f"}, "battery": {"pct": 50, "charging": false}, "state": "idle"},
+        {"$why": "感測值缺單位", "ts": 1792053940785, "pose": {"x": 0, "y": 0, "yaw": 0, "floor": "1f"}, "battery": {"pct": 50, "charging": false}, "state": "idle", "sensors": {"co": {"value": 3}}},
+        {"$why": "ts 不是整數", "ts": 1792053940785.5, "pose": {"x": 0, "y": 0, "yaw": 0, "floor": "1f"}, "battery": {"pct": 50, "charging": false}, "state": "idle"}
+      ]
+    },
+    "RobotEvent": {
+      "valid": [
+        {"ts": 1792053940785, "type": "goal_reached", "data": {"cmdId": "c_1"}},
+        {"ts": 1792053940785, "type": "estop_pressed"}
+      ],
+      "invalid": [
+        {"$why": "未知事件", "ts": 1792053940785, "type": "exploded"},
+        {"$why": "data 不是物件", "ts": 1792053940785, "type": "fault", "data": "E1"}
+      ]
+    },
+    "Command": {
+      "valid": [
+        {"cmdId": "c_8f2a", "ts": 1792053940785, "type": "navigate", "args": {"x": 12.4, "y": 30.1, "yaw": 1.57}},
+        {"cmdId": "c_8f2b", "ts": 1792053940785, "type": "estop"},
+        {"cmdId": "c_8f2c", "ts": 1792053940785, "type": "patrol", "args": {"points": [{"x": 1, "y": 2}], "loops": 2}, "timeoutSec": 600}
+      ],
+      "invalid": [
+        {"$why": "缺 cmdId", "ts": 1792053940785, "type": "stop"},
+        {"$why": "缺 ts", "cmdId": "c_1", "type": "stop"},
+        {"$why": "未知指令", "cmdId": "c_1", "ts": 1792053940785, "type": "fly"},
+        {"$why": "args 不是物件", "cmdId": "c_1", "ts": 1792053940785, "type": "stop", "args": []}
+      ]
+    },
+    "Ack": {
+      "valid": [
+        {"cmdId": "c_8f2a", "ts": 1792053940785, "status": "accepted"},
+        {"cmdId": "c_8f2a", "ts": 1792053940785, "status": "rejected", "error": {"code": "UNSUPPORTED", "msg": "no ptz"}},
+        {"cmdId": "c_8f2a", "ts": 1792053940785, "status": "done", "result": {"objectKey": "snap/1.jpg"}}
+      ],
+      "invalid": [
+        {"$why": "未知狀態", "cmdId": "c_1", "ts": 1792053940785, "status": "ok"},
+        {"$why": "error 缺 msg", "cmdId": "c_1", "ts": 1792053940785, "status": "failed", "error": {"code": "X"}}
+      ]
+    },
+    "Teleop": {
+      "valid": [
+        {"lockId": "l_1", "vx": 0.5, "vy": 0, "wz": -0.3, "ts": 1792053940785}
+      ],
+      "invalid": [
+        {"$why": "缺 lockId", "vx": 0.5, "vy": 0, "wz": 0, "ts": 1792053940785},
+        {"$why": "缺 ts", "lockId": "l_1", "vx": 0.5, "vy": 0, "wz": 0}
+      ]
+    },
+    "RobotOnline": {
+      "valid": [
+        {"online": true, "ts": 1792053940785},
+        {"online": false, "ts": 1792053940785}
+      ],
+      "invalid": [
+        {"$why": "online 不是布林", "online": "yes", "ts": 1792053940785},
+        {"$why": "缺 ts", "online": true}
+      ]
+    },
+    "AdapterStatus": {
+      "valid": [
+        {"ts": 1792053940785, "name": "mock", "alive": true, "version": "0.1.0", "robots": ["B2-001", "B2-002"], "connected": ["B2-001"]},
+        {"$why": "Last Will：沒有 ts", "name": "mock", "alive": false}
+      ],
+      "invalid": [
+        {"$why": "缺 alive", "ts": 1792053940785, "name": "mock"},
+        {"$why": "缺 name", "ts": 1792053940785, "alive": true}
+      ]
+    }
+  }
+}

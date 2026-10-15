@@ -2,7 +2,7 @@
 # transform：平台座標 -> 機器人地圖座標，由平台「座標校正」產生後貼上（或之後改由後端下發）
 robots:
   - code: X30-001
-    floor: 2F
+    floor: 2f
     host: 192.168.1.106     # 106 導航主機；多台時每台 IP 不同，需與網管規劃
     port: 30000
     transform: {a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0}

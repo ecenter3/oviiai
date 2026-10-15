@@ -1,7 +1,6 @@
 /**
  * 權限碼（後端邏輯 §6）。頁面權限與操作權限兩層，GET /permissions 以此回傳樹狀清單。
- * 後端副本在 backend/src/auth/perms.ts，兩邊必須同步修改（後端單元測試會比對）。
- * 不得 import 其他套件，後端測試直接讀這個檔案。
+ * 後端、前端都從這裡引用。
  */
 export const PERM_TREE = [
   {

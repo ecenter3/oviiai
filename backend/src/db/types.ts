@@ -53,7 +53,58 @@ export interface SettingsTable {
   updated_at: ColumnType<Date, never, Date | string>;
 }
 
+export interface FloorsTable {
+  id: string;
+  name: string;
+  sort: number;
+  plan_key: string | null;
+  width_m: string | null;
+  height_m: string | null;
+  robot_quota: ColumnType<number, number | undefined, number>;
+}
+
+export interface RobotsTable {
+  id: Generated<string>;
+  code: string;
+  brand: string;
+  model: string;
+  serial_no: string | null;
+  floor_id: string;
+  adapter: string;
+  conn: ColumnType<unknown, string | undefined, string>;
+  caps: ColumnType<string[], string[] | undefined, string[]>;
+  modules: ColumnType<unknown, string | undefined, string>;
+  params: ColumnType<unknown, string | undefined, string>;
+  enabled: ColumnType<boolean, boolean | undefined, boolean>;
+  created_at: ColumnType<Date, never, never>;
+}
+
+export interface TelemetryTable {
+  at: Timestamp;
+  robot_id: string;
+  x: number | null;
+  y: number | null;
+  yaw: number | null;
+  battery: number | null;
+  charging: boolean | null;
+  state: string | null;
+  task_id: string | null;
+  rssi: number | null;
+  speed: number | null;
+}
+
+export interface RobotStateLogTable {
+  at: Timestamp;
+  robot_id: string;
+  state: string;
+  reason: string | null;
+}
+
 export interface DB {
+  floors: FloorsTable;
+  robots: RobotsTable;
+  telemetry: TelemetryTable;
+  robot_state_log: RobotStateLogTable;
   roles: RolesTable;
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;

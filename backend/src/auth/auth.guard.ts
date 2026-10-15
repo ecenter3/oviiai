@@ -22,6 +22,8 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    // WebSocket 在連線時由 FleetGateway 驗證，這裡只管 HTTP
+    if (ctx.getType() !== 'http') return true;
     const targets = [ctx.getHandler(), ctx.getClass()];
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets)) return true;
 

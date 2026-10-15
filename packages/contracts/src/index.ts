@@ -1,6 +1,7 @@
 /**
  * 轉接器 <-> 後端 MQTT 訊息格式。
  * 必須與 adapters/common/contracts.py 保持一致。座標一律是平台座標（公尺、弧度）。
+ * 兩邊都以 fixtures/messages.json 測試（T-07），改格式時先改 fixtures。
  */
 import { z } from 'zod';
 
@@ -23,12 +24,15 @@ export const Telemetry = z.object({
 });
 export type Telemetry = z.infer<typeof Telemetry>;
 
+export const EventType = z.enum([
+  'fault', 'fault_cleared', 'waypoint_reached', 'goal_reached', 'goal_failed',
+  'charge_started', 'charge_finished', 'estop_pressed', 'sos', 'obstacle_blocked',
+]);
+export type EventType = z.infer<typeof EventType>;
+
 export const RobotEvent = z.object({
   ts: z.number().int(),
-  type: z.enum([
-    'fault', 'fault_cleared', 'waypoint_reached', 'goal_reached', 'goal_failed',
-    'charge_started', 'charge_finished', 'estop_pressed', 'sos', 'obstacle_blocked',
-  ]),
+  type: EventType,
   data: z.record(z.unknown()).optional(),
 });
 export type RobotEvent = z.infer<typeof RobotEvent>;
@@ -49,10 +53,13 @@ export const Command = z.object({
 });
 export type Command = z.infer<typeof Command>;
 
+export const AckStatus = z.enum(['accepted', 'rejected', 'done', 'failed']);
+export type AckStatus = z.infer<typeof AckStatus>;
+
 export const Ack = z.object({
   cmdId: z.string(),
   ts: z.number().int(),
-  status: z.enum(['accepted', 'rejected', 'done', 'failed']),
+  status: AckStatus,
   error: z.object({ code: z.string(), msg: z.string() }).optional(),
   result: z.record(z.unknown()).optional(),
 });
@@ -63,8 +70,20 @@ export const Teleop = z.object({
 });
 export type Teleop = z.infer<typeof Teleop>;
 
-export const AdapterStatus = z.object({
+/** `rms/robot/{code}/online`（retain）。轉接器偵測到單台斷線或重連時發送 */
+export const RobotOnline = z.object({
+  online: z.boolean(),
   ts: z.number().int(),
+});
+export type RobotOnline = z.infer<typeof RobotOnline>;
+
+/**
+ * `rms/adapter/{name}/status`（retain），每 5 秒心跳。
+ * 轉接器的 Last Will 也發在這裡：`{name, alive: false}`，沒有 ts（遺囑在連線時就固定）。
+ * alive=false 時後端把該轉接器的機器人全部視為離線。
+ */
+export const AdapterStatus = z.object({
+  ts: z.number().int().optional(),
   name: z.string(),
   alive: z.boolean(),
   version: z.string().optional(),

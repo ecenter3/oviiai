@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any
 
@@ -16,7 +15,7 @@ import aiomqtt
 from pydantic import ValidationError
 
 from . import topics
-from .contracts import Ack, AckError, AdapterStatus, Command, Teleop, now_ms
+from .contracts import Ack, AckError, AdapterStatus, Command, RobotOnline, Teleop, now_ms
 from .driver import CommandError, RobotDriver
 
 log = logging.getLogger("bridge")
@@ -55,7 +54,7 @@ class Bridge:
 
     async def _session(self) -> None:
         will = aiomqtt.Will(topics.adapter_status(self.name),
-                            json.dumps({"name": self.name, "alive": False}), qos=1, retain=True)
+                            _json(AdapterStatus(name=self.name, alive=False)), qos=1, retain=True)
         async with aiomqtt.Client(self.host, self.port, identifier=f"adapter-{self.name}",
                                   username=self.username, password=self.password, will=will) as client:
             self._client = client
@@ -79,10 +78,10 @@ class Bridge:
     # ---------------------------------------------------------------- loops
     async def _heartbeat_loop(self) -> None:
         while True:
-            st = AdapterStatus(name=self.name, version=self.version, robots=list(self.drivers),
+            st = AdapterStatus(ts=now_ms(), name=self.name, alive=True, version=self.version,
+                               robots=list(self.drivers),
                                connected=[c for c, d in self.drivers.items() if d.connected])
-            body = json.loads(_json(st)) | {"alive": True}
-            await self.publish(topics.adapter_status(self.name), json.dumps(body), qos=1, retain=True)
+            await self.publish(topics.adapter_status(self.name), _json(st), qos=1, retain=True)
             await asyncio.sleep(HEARTBEAT_PERIOD_S)
 
     async def _robot_loop(self, d: RobotDriver) -> None:
@@ -95,7 +94,7 @@ class Bridge:
                     log.warning("%s connect failed: %s", d.code, e)
             if d.connected != was_online:
                 was_online = d.connected
-                await self.publish(topics.online(d.code), json.dumps({"online": was_online, "ts": now_ms()}),
+                await self.publish(topics.online(d.code), _json(RobotOnline(online=was_online, ts=now_ms())),
                                    qos=1, retain=True)
             if d.connected:
                 try:
@@ -158,9 +157,9 @@ class Bridge:
                 raise CommandError("OFFLINE", f"{d.code} is not connected")
             await d.validate(cmd)
         except CommandError as e:
-            await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="rejected", error=AckError(code=e.code, msg=e.msg)))
+            await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="rejected", error=AckError(code=e.code, msg=e.msg)))
             return
-        await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="accepted"))
+        await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="accepted"))
         # 新的移動指令會取代舊的：舊的那筆由 driver 回報 CANCELLED
         prev = self._running.pop(d.code, None)
         if prev and not prev.done() and cmd.type in {"navigate", "patrol", "charge", "stop", "estop"}:
@@ -171,15 +170,15 @@ class Bridge:
         try:
             coro = d.execute(cmd)
             result = await (asyncio.wait_for(coro, cmd.timeoutSec) if cmd.timeoutSec else coro)
-            await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="done", result=result))
+            await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="done", result=result))
         except CommandError as e:
-            await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed", error=AckError(code=e.code, msg=e.msg)))
+            await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="failed", error=AckError(code=e.code, msg=e.msg)))
         except TimeoutError:
-            await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed",
+            await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="failed",
                                         error=AckError(code="TIMEOUT", msg=f"exceeded {cmd.timeoutSec}s")))
         except asyncio.CancelledError:
-            await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed",
+            await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="failed",
                                         error=AckError(code="CANCELLED", msg="superseded by a newer command")))
         except Exception as e:
             log.exception("%s cmd %s crashed", d.code, cmd.cmdId)
-            await self._ack(d.code, Ack(cmdId=cmd.cmdId, status="failed", error=AckError(code="INTERNAL", msg=str(e))))
+            await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="failed", error=AckError(code="INTERNAL", msg=str(e))))

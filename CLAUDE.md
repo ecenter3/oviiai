@@ -19,7 +19,7 @@
 攝影機 RTSP ──> MediaMTX ──WebRTC(WHEP)──> 瀏覽器
 ```
 - 後端是模組化單體，不拆微服務。品牌差異只存在 `adapters/`，後端與前端不得出現品牌判斷（能力用 capabilities 清單）。
-- 轉接器與後端之間只走 MQTT，訊息格式定義在 `packages/contracts`（TS, zod）與 `adapters/common/contracts.py`（pydantic），兩邊必須同步修改。
+- 轉接器與後端之間只走 MQTT，訊息格式定義在 `packages/contracts`（TS, zod）與 `adapters/common/contracts.py`（pydantic），兩邊必須同步修改；先改 `packages/contracts/fixtures/messages.json`，兩邊的測試都讀它。
 
 ## MQTT 主題（不可自行更名）
 | 主題 | 方向 | QoS |
@@ -52,8 +52,10 @@
 ```bash
 make up            # 起資料庫、Redis、EMQX、S3
 make down
-make test          # 全部測試
+make test          # 全部測試（contracts、轉接器、後端）
+make seed-mock     # 在資料庫登記 6 台模擬機器人（後端只接受已登記的機器人）
 make mock          # 啟動模擬機器人（3 品牌各 2 台）
+make contracts     # 改了 packages/contracts 後重新編譯，後端才看得到
 cd backend && npm run start:dev
 cd frontend && npm run dev
 ```
