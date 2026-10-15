@@ -4,6 +4,21 @@
 
 > 為什麼不直接在 Windows 跑？B2 的 SDK 只支援 Linux；X30 與後端雖然可以，但統一在 WSL 才不會遇到換行、路徑、權限問題。
 
+## 自動安裝（建議）
+兩個腳本會依序完成下面第 1–3 節：
+1. **Windows 端**：以系統管理員開 PowerShell，切到下載的 `setup-windows.ps1` 所在資料夾，執行
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1
+   ```
+   會檢查 Windows 版本與 WSL2、寫入 `.wslconfig`、開防火牆、提醒 Docker Desktop 設定。
+2. **Ubuntu 端**：開 Ubuntu 終端機，執行
+   ```bash
+   git clone https://github.com/ecenter3/oviiai.git ~/oviiai && bash ~/oviiai/scripts/setup-wsl.sh
+   ```
+   會安裝 Python/Node、建立 `.env`、安裝套件、啟動資料庫等服務並跑測試。可重複執行。
+
+以下為手動步驟，腳本出錯時對照用。
+
 ## 1. 安裝（約 30 分鐘）
 以系統管理員開 PowerShell：
 ```powershell

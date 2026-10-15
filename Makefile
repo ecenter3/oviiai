@@ -1,3 +1,4 @@
+PY := $(if $(wildcard adapters/.venv/bin/python),.venv/bin/python,python3)
 COMPOSE = docker compose -f infra/docker-compose.dev.yml --env-file .env
 
 .PHONY: up up-media down logs ps migrate test test-adapters test-backend mock
@@ -23,10 +24,10 @@ migrate:
 test: test-adapters test-backend
 
 test-adapters:
-	cd adapters && python3 -m pytest -q
+	cd adapters && $(PY) -m pytest -q
 
 test-backend:
 	cd backend && npm test
 
 mock:
-	cd adapters && python3 -m mock.run --config mock/robots.yaml
+	cd adapters && $(PY) -m mock.run --config mock/robots.yaml
