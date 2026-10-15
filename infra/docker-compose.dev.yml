@@ -1,0 +1,70 @@
+# 開發用：16 GB 筆電，各服務都設了記憶體上限
+# 啟動：make up（不含 MediaMTX）／make up-media（含 MediaMTX）
+name: oviiai-dev
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: UTC
+    ports: ["5432:5432"]
+    volumes: [db-data:/var/lib/postgresql/data]
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=100"]
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb"]
+    ports: ["6379:6379"]
+    volumes: [redis-data:/data]
+    mem_limit: 384m
+
+  emqx:
+    image: emqx/emqx:5.8.3
+    restart: unless-stopped
+    environment:
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD}
+    ports:
+      - "1883:1883"     # MQTT
+      - "8883:8883"     # MQTT TLS（正式環境用）
+      - "18083:18083"   # 管理介面
+    volumes: [emqx-data:/opt/emqx/data]
+    mem_limit: 768m
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio-data:/data]
+    mem_limit: 512m
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.11.3
+    profiles: ["media"]
+    restart: unless-stopped
+    ports:
+      - "8554:8554"       # RTSP
+      - "8889:8889"       # WebRTC (WHEP)
+      - "8189:8189/udp"   # WebRTC ICE
+      - "9997:9997"       # API
+    volumes: [./mediamtx.yml:/mediamtx.yml:ro]
+    mem_limit: 512m
+
+volumes:
+  db-data:
+  redis-data:
+  emqx-data:
+  minio-data:

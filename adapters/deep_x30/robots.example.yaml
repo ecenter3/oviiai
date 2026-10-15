@@ -1,0 +1,10 @@
+# 複製為 robots.yaml。每台 X30 一筆。
+# transform：平台座標 -> 機器人地圖座標，由平台「座標校正」產生後貼上（或之後改由後端下發）
+robots:
+  - code: X30-001
+    floor: 2F
+    host: 192.168.1.106     # 106 導航主機；多台時每台 IP 不同，需與網管規劃
+    port: 30000
+    transform: {a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0}
+    nav_defaults: {navMode: 1, speed: 0, gait: 0, obsMode: 0}
+    # dock_point: {x: 1.2, y: 3.4, yaw: 0}   # 充電樁前的點；自動上樁方式待原廠確認

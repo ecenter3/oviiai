@@ -1,0 +1,7 @@
+# Windows 上一律以 LF 存放，避免 shell 腳本與 Docker 出錯
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.pdf binary

@@ -1,0 +1,30 @@
+[project]
+name = "oviiai-adapters"
+version = "0.1.0"
+description = "OViiAI 各品牌機器人轉接器"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.9,<3",
+  "aiomqtt>=2.3,<3",
+  "pyyaml>=6.0",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.8"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["common*", "deep_x30*", "unitree_b2*", "anbot*", "mock*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

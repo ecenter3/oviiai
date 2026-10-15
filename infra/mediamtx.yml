@@ -1,0 +1,30 @@
+# MediaMTX 開發設定：不轉碼、有人看才拉流、播放權限由後端驗證 60 秒憑證
+logLevel: info
+api: yes
+apiAddress: :9997
+rtsp: yes
+rtspAddress: :8554
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+hls: no
+rtmp: no
+srt: no
+
+# 後端 /internal/media/auth 驗證 token（WHEP 請求帶 ?token=）
+authMethod: http
+authHTTPAddress: http://host.docker.internal:3000/internal/media/auth
+authHTTPExclude:
+  - action: api
+  - action: metrics
+
+pathDefaults:
+  sourceOnDemand: yes
+  sourceOnDemandStartTimeout: 10s
+  sourceOnDemandCloseAfter: 15s
+
+# 攝影機路徑由後端透過 API 動態新增（POST /v3/config/paths/add/cam-<id>）
+paths:
+  # 測試用：把任一 RTSP 位址填入即可在瀏覽器測試
+  test:
+    source: rtsp://user:pass@192.168.0.10:554/stream1

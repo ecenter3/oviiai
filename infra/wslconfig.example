@@ -1,0 +1,15 @@
+# 複製到 C:\Users\<你的帳號>\.wslconfig，然後在 PowerShell 執行 wsl --shutdown
+[wsl2]
+# 16 GB 筆電：留 6 GB 給 Windows
+memory=10GB
+processors=6
+swap=4GB
+# mirrored：WSL 與 Windows 共用網卡，DDS 群播與機器人網段才連得到（需 Windows 11 22H2 以上）
+networkingMode=mirrored
+dnsTunneling=true
+firewall=true
+autoProxy=true
+
+[experimental]
+autoMemoryReclaim=gradual
+hostAddressLoopback=true
