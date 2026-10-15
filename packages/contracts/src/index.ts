@@ -82,3 +82,4 @@ export const topics = {
   online: (code: string) => `rms/robot/${code}/online`,
   adapterStatus: (name: string) => `rms/adapter/${name}/status`,
 } as const;
+export * from './perms';

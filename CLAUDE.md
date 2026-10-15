@@ -37,7 +37,7 @@
 ## 規則
 - 指令非同步：API 回 202 + cmdId；轉接器先回 `accepted` 再回 `done`/`failed`；15 秒沒 ack 視為逾時。
 - 遙控 100 ms 一筆，500 ms 沒收到就停車；同一台只能一人遙控（Redis 鎖）。
-- 所有 API 用 `@RequirePerm('<code>')`；會改變狀態的用 `@OpLog`。權限檢查一律在後端。
+- 所有 API 用 `@RequirePerm('<code>')`；只需登入的用 `@Authenticated()`、免登入的用 `@Public()`（漏標會被 `route-coverage.spec.ts` 擋下）。會改變狀態的用 `@OpLog`。權限檢查一律在後端。
 - 秘密只放 `.env`，不得 commit。攝影機帳密在資料庫以 pgcrypto 加密。
 - 不存人臉特徵與名單照片。
 - Migration 用 node-pg-migrate，SQL 檔放 `db/migrations/`，只能新增不能改舊檔。
