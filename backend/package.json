@@ -46,5 +46,8 @@
     "typescript": "^5.7.2",
     "unplugin-swc": "^2.0.0",
     "vitest": "^2.1.8"
+  },
+  "overrides": {
+    "multer": "^2.4.0"
   }
 }

@@ -95,5 +95,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # 前端以 alias 直接引用 contracts 原始碼，需要它的相依（zod）
       - run: npm install
+        working-directory: packages/contracts
+      - run: npm install
+      - run: npm test
       - run: npm run build

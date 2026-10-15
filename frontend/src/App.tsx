@@ -1,37 +1,48 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { Layout } from './components/Layout';
+import { RequireLogin, RequirePage } from './components/RequirePage';
+import { LoginPage } from './pages/LoginPage';
+import { MonitorPage } from './pages/MonitorPage';
+import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './pages/StatusPages';
+import { PAGES } from './routes';
+import { useAuth } from './stores/auth';
 
-interface Health {
-  status: string;
-  checks: Record<string, string>;
-}
+/** 已實作的頁面；其餘顯示佔位頁 */
+const IMPLEMENTED: Record<string, () => JSX.Element> = {
+  '/': MonitorPage,
+};
 
-// 畫面依可操作原型（oviiai-monitor.html）逐頁實作：總覽、樓層監控、派工、告警、影像、設定
 export function App() {
-  const health = useQuery({
-    queryKey: ['health'],
-    queryFn: async (): Promise<Health> => {
-      const r = await fetch('/api/v1/health');
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    },
-    refetchInterval: 5000,
-  });
+  const init = useAuth((s) => s.init);
+  useEffect(() => {
+    void init();
+  }, [init]);
 
   return (
-    <main style={{ fontFamily: 'system-ui, "Noto Sans TC", sans-serif', padding: 24 }}>
-      <h1>OViiAI 監控平台</h1>
-      <p>開發骨架。後端狀態：</p>
-      {health.isLoading && <p>讀取中…</p>}
-      {health.error && <p style={{ color: '#c62828' }}>連不到後端：{String(health.error)}</p>}
-      {health.data && (
-        <ul>
-          {Object.entries(health.data.checks).map(([k, v]) => (
-            <li key={k}>
-              {k}：{v}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        element={
+          <RequireLogin>
+            <Layout />
+          </RequireLogin>
+        }
+      >
+        {PAGES.map((p) => {
+          const Page = IMPLEMENTED[p.path];
+          return (
+            <Route
+              key={p.path}
+              path={p.path}
+              element={<RequirePage page={p}>{Page ? <Page /> : <PlaceholderPage page={p} />}</RequirePage>}
+            />
+          );
+        })}
+        <Route path="/forbidden" element={<ForbiddenPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { AdapterStatus, RobotOnline, Telemetry, topics } from '@oviiai/contracts';
 import type Redis from 'ioredis';
 import { Subject } from 'rxjs';
+import { WarnOnce } from '../common/warn-once';
 import { KYSELY, type Database } from '../db/database.module';
 import { MqttService } from '../mqtt/mqtt.service';
 import { REDIS } from '../redis/redis.module';
@@ -35,7 +36,7 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Fleet');
   private readonly live = new Map<string, LiveState>();
   private readonly throttle = new Map<string, { last: number; timer?: NodeJS.Timeout }>();
-  private readonly warned = new Set<string>();
+  private readonly warn = new WarnOnce(this.log);
   private tick?: NodeJS.Timeout;
   private startedAt = Date.now();
 
@@ -55,6 +56,7 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     this.startedAt = Date.now();
+    this.registry.removed$.subscribe((r) => void this.purge(r).catch((e) => this.log.error(String(e))));
     try {
       await this.registry.load();
       await this.restore();
@@ -74,7 +76,12 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
     this.mqtt.subscribe(topics.telemetry('+'), 0, json((c, b) => this.handleTelemetry(c, b), 2));
     this.mqtt.subscribe(topics.online('+'), 1, json((c, b) => this.handleOnline(c, b), 2));
     this.mqtt.subscribe(topics.adapterStatus('+'), 1, json((n, b) => this.handleAdapterStatus(n, b), 2));
-    this.tick = setInterval(() => void this.checkOffline().catch((e) => this.log.error(String(e))), TICK_MS);
+    this.tick = setInterval(() => {
+      void this.registry
+        .refreshIfStale()
+        .then(() => this.checkOffline())
+        .catch((e) => this.log.error(String(e)));
+    }, TICK_MS);
   }
 
   onModuleDestroy() {
@@ -201,6 +208,27 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
     this.emitState(next, true);
   }
 
+  /**
+   * 機器人被停用或刪除：從即時狀態與 Redis 移除，並通知畫面（PR #3 審查第 1 點）。
+   * 之後它的遙測會被 registry 擋下，不會再出現。
+   */
+  private async purge(robot: RobotInfo) {
+    const prev = this.live.get(robot.code);
+    this.live.delete(robot.code);
+    const th = this.throttle.get(robot.code);
+    clearTimeout(th?.timer);
+    this.throttle.delete(robot.code);
+    await this.redis.del(redisKey(robot.code));
+    this.log.log(`${robot.code} 已停用或刪除，移出即時狀態`);
+    if (prev) {
+      this.out$.next({
+        event: 'robot.online',
+        floor: prev.floor,
+        data: { robotId: robot.id, code: robot.code, online: false, removed: true },
+      });
+    }
+  }
+
   /** 每台節流 500 ms：期間內的更新只送最後一筆；狀態改變立即送 */
   private emitState(s: LiveState, force: boolean) {
     const now = Date.now();
@@ -233,8 +261,11 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** 重啟後從 Redis 還原最後狀態，畫面不會整片空白 */
+  /** 重啟後從 Redis 還原最後狀態，畫面不會整片空白；已停用機器人留下的鍵一併清掉 */
   private async restore() {
+    const known = new Set(this.registry.all().map((r) => redisKey(r.code)));
+    const orphans = (await this.redis.keys('robot:*')).filter((k) => !known.has(k));
+    if (orphans.length) await this.redis.del(...orphans);
     for (const r of this.registry.all()) {
       const raw = await this.redis.hget(redisKey(r.code), 'live');
       if (!raw) continue;
@@ -248,8 +279,6 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
   }
 
   private warnOnce(key: string, msg: string) {
-    if (this.warned.has(key)) return;
-    this.warned.add(key);
-    this.log.warn(msg);
+    this.warn.warn(key, msg);
   }
 }

@@ -11,6 +11,8 @@ export interface AuthUser {
   lockedUntil: Date | null;
   roleId: string;
   roleName: string;
+  /** 系統角色（系統管理員）成員：可強制接管遙控 */
+  isSystem: boolean;
   perms: string[];
 }
 
@@ -38,6 +40,7 @@ export class AuthRepository {
         'u.locked_until as lockedUntil',
         'r.id as roleId',
         'r.name as roleName',
+        'r.is_system as isSystem',
         'r.perms',
       ]);
   }

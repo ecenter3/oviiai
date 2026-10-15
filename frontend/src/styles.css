@@ -1,0 +1,84 @@
+/* 深色主題。原型（oviiai-monitor.html）不在 repo，色彩先用中性深色，拿到原型後替換這組變數即可。
+   地端部署可能沒有網路，不從 Google Fonts 載入；裝有 Noto Sans TC／JetBrains Mono 的機器會自動使用。 */
+:root {
+  --bg: #0f1419;
+  --panel: #161c23;
+  --panel-2: #1d252e;
+  --border: #2a3440;
+  --text: #e6edf3;
+  --muted: #8b98a5;
+  --accent: #3b82f6;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --font: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); }
+a { color: var(--accent); }
+h1 { font-size: 20px; margin: 0 0 16px; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }
+button, select, input { font: inherit; color: inherit; }
+button {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.6; cursor: default; }
+select, input {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+}
+
+.splash { display: grid; place-items: center; height: 100%; color: var(--muted); }
+
+/* 版面 */
+.shell { display: flex; height: 100%; }
+.sidebar { width: 220px; flex: none; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; }
+.brand { padding: 16px; font-weight: 700; border-bottom: 1px solid var(--border); }
+.sidebar section { padding: 8px 0; }
+.sidebar h2 { font-size: 12px; color: var(--muted); margin: 8px 16px 4px; font-weight: 500; }
+.sidebar a { display: block; padding: 6px 16px; color: var(--text); text-decoration: none; border-left: 3px solid transparent; }
+.sidebar a:hover { background: var(--panel-2); }
+.sidebar a.active { background: var(--panel-2); border-left-color: var(--accent); }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.topbar label { display: flex; align-items: center; gap: 8px; }
+.topbar .spacer { flex: 1; }
+.who { color: var(--muted); }
+.conn { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+.conn-disconnected { background: var(--danger); color: #fff; }
+.conn-connecting { background: var(--warn); color: #000; }
+.conn-forbidden { background: var(--panel-2); color: var(--muted); }
+.content { flex: 1; overflow: auto; padding: 16px; }
+
+/* 登入 */
+.login { display: grid; place-items: center; height: 100%; padding: 16px; }
+.login form { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; display: grid; gap: 14px; }
+.login label { display: grid; gap: 6px; }
+.login button { background: var(--accent); border-color: var(--accent); color: #fff; padding: 8px; }
+.error { color: var(--danger); margin: 0; }
+.notice { color: var(--warn); margin: 0; }
+
+.status-page { text-align: center; padding-top: 10vh; }
+
+/* 表格與狀態 */
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.table th { color: var(--muted); font-weight: 500; }
+.table tr.offline { opacity: 0.5; }
+.state { padding: 1px 8px; border-radius: 10px; background: var(--panel-2); font-size: 12px; }
+.state-navigating, .state-patrolling, .state-returning { color: var(--accent); }
+.state-charging { color: var(--ok); }
+.state-estop, .state-fault { color: var(--danger); }
+.state-offline { color: var(--muted); }
+
+/* 手機寬度可瀏覽不破版 */
+@media (max-width: 720px) {
+  .shell { flex-direction: column; }
+  .sidebar { width: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--border); }
+  .topbar { flex-wrap: wrap; }
+}

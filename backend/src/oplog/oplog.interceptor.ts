@@ -41,13 +41,13 @@ export class OpLogInterceptor implements NestInterceptor {
       await this.oplog.write({
         userId: req.user?.sub ?? null,
         username: req.user?.username ?? '(未登入)',
-        action: meta.action,
+        action: typeof meta.action === 'function' ? meta.action(req) : meta.action,
         target: meta.target?.(req, result) ?? null,
         detail,
         ip: req.ip ?? null,
       });
     } catch (e) {
-      this.log.error(`寫入操作日誌失敗 ${meta.action}: ${e instanceof Error ? e.message : e}`);
+      this.log.error(`寫入操作日誌失敗：${e instanceof Error ? e.message : e}`);
     }
   }
 }

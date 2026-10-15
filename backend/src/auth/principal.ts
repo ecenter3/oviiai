@@ -4,5 +4,6 @@ import type { AccessPayload } from './auth.service';
 export interface Principal extends AccessPayload {
   displayName: string;
   roleName: string;
+  isSystem: boolean;
   perms: string[];
 }
