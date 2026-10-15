@@ -112,6 +112,8 @@ class MockDriver(RobotDriver):
             self.state = "idle"
             return None
         if t == "estop":
+            self._vel = (0.0, 0.0, 0.0)
+            self.speed = 0.0
             self.state = "estop"
             self.emit(RobotEvent(ts=now_ms(), type="estop_pressed"))
             return None
@@ -147,9 +149,14 @@ class MockDriver(RobotDriver):
         finally:
             self.task_ref = None
 
+    def is_estopped(self) -> bool:
+        return self.state == "estop"
+
     async def teleop(self, t: Teleop) -> None:
         if "teleop" not in self.capabilities:
             raise CommandError("UNSUPPORTED", "teleop not supported")
+        if self.is_estopped():
+            raise CommandError("ESTOP", "robot is in emergency stop")
         self.state = "teleop"
         self._vel = (t.vx, t.vy, t.wz)
 

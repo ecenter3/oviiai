@@ -100,7 +100,47 @@ export interface RobotStateLogTable {
   reason: string | null;
 }
 
+export interface CamerasTable {
+  id: Generated<string>;
+  code: string;
+  name: string;
+  floor_id: string;
+  x: number;
+  y: number;
+  rtsp_url: Buffer;
+  stream_key: string;
+  enabled: ColumnType<boolean, boolean | undefined, boolean>;
+}
+
+export interface ChargersTable {
+  id: Generated<string>;
+  code: string;
+  floor_id: string;
+  x: number;
+  y: number;
+  brand: string;
+  robot_dock: ColumnType<unknown, string | undefined, string>;
+  occupied_by: string | null;
+  enabled: ColumnType<boolean, boolean | undefined, boolean>;
+}
+
+export interface TasksTable {
+  id: Generated<string>;
+  created_at: ColumnType<Date, never, never>;
+  status: string;
+}
+
+export interface AlarmsTable {
+  id: Generated<string>;
+  status: string;
+  occurred_at: Timestamp;
+}
+
 export interface DB {
+  cameras: CamerasTable;
+  chargers: ChargersTable;
+  tasks: TasksTable;
+  alarms: AlarmsTable;
   floors: FloorsTable;
   robots: RobotsTable;
   telemetry: TelemetryTable;

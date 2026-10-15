@@ -161,7 +161,8 @@ describe.skipIf(!ready)('fleet（e2e）', () => {
   });
 
   it('遙測每秒最多一筆批次寫入 TimescaleDB', async () => {
-    const base = Date.now() + 2000;
+    // 對齊到整秒，+0、+200、+400 ms 才保證落在同一秒
+    const base = Math.ceil((Date.now() + 2000) / 1000) * 1000;
     for (const dt of [0, 200, 400, 1100]) await publish(`rms/robot/${CODE}/telemetry`, tele({ ts: base + dt }));
     await until(() => app.get(FleetService).get(CODE)?.ts === base + 1100);
     await app.get(TelemetryWriter).flush();
@@ -198,6 +199,26 @@ describe.skipIf(!ready)('fleet（e2e）', () => {
     await publish(`rms/robot/NOPE-${tag}/telemetry`, tele());
     await new Promise((r) => setTimeout(r, 300));
     expect(got.find((x) => x.code === `NOPE-${tag}`)).toBeUndefined();
+  });
+
+  it('連線時先收到一次 stats.tick（統計卡），內容含線上台數', async () => {
+    const s = connect({ token });
+    const stats = await new Promise<Record<string, number>>((r) => s.once('stats.tick', r));
+    expect(stats).toEqual(
+      expect.objectContaining({ total: expect.any(Number), online: expect.any(Number), working: expect.any(Number), todayTasks: expect.any(Number), openAlarms: expect.any(Number) }),
+    );
+  });
+
+  it('攝影機、充電樁點位：有 monitor 權限可讀（不含 RTSP），沒有回 403', async () => {
+    const cams = await request(app.getHttpServer()).get('/api/v1/cameras?floor=1f').set('Authorization', `Bearer ${token}`).expect(200);
+    expect(Array.isArray(cams.body)).toBe(true);
+    for (const c of cams.body) {
+      expect(c.floorId).toBe('1f');
+      expect(c).not.toHaveProperty('rtspUrl');
+      expect(c).not.toHaveProperty('rtsp_url');
+    }
+    await request(app.getHttpServer()).get('/api/v1/chargers').set('Authorization', `Bearer ${token}`).expect(200);
+    await request(app.getHttpServer()).get('/api/v1/cameras').set('Authorization', `Bearer ${noPermToken}`).expect(403);
   });
 
   it('健康檢查回報 db、redis、mqtt', async () => {

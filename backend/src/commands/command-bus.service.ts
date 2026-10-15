@@ -49,6 +49,8 @@ export class CommandBus implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('CommandBus');
   private readonly warn = new WarnOnce(this.log);
   private sweeper?: NodeJS.Timeout;
+  /** 關閉中：Redis 可能已斷線，晚到的 ack 不再處理 */
+  private closing = false;
 
   readonly results$ = new Subject<CmdResultOut>();
   /** 給告警（T-21 cmd_failed）：失敗、被拒、逾時 */
@@ -68,12 +70,14 @@ export class CommandBus implements OnModuleInit, OnModuleDestroy {
       } catch {
         return this.warn.warn(`json:${topic}`, `${topic} 不是 JSON，丟棄`);
       }
+      if (this.closing) return;
       void this.handleAck(topic.split('/')[2], body).catch((e) => this.log.error(`${topic}：${e instanceof Error ? e.stack : e}`));
     });
     this.sweeper = setInterval(() => void this.sweep().catch((e) => this.log.error(String(e))), SWEEP_MS);
   }
 
   onModuleDestroy() {
+    this.closing = true;
     clearInterval(this.sweeper);
   }
 

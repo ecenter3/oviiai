@@ -11,6 +11,7 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { RedisModule } from './redis/redis.module';
 import { RolesModule } from './roles/roles.module';
 import { SettingsModule } from './settings/settings.module';
+import { MapsModule } from './maps/maps.module';
 import { UsersModule } from './users/users.module';
 
 // 模組依工程開發手冊「後端」章節逐步加入：
@@ -27,6 +28,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     RolesModule,
     FloorsModule,
+    MapsModule,
     FleetModule,
     CommandsModule,
     RealtimeModule,

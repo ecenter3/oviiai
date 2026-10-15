@@ -1,21 +1,21 @@
 import { io, type Socket } from 'socket.io-client';
 import { getToken, refresh } from '../api/session';
-import { type CmdResult, type RobotLive, useRealtime } from '../stores/realtime';
+import { t } from '../i18n';
+import { type CmdResult, type RobotLive, type Stats, useRealtime } from '../stores/realtime';
+import { useToast } from '../stores/toast';
 
 let socket: Socket | null = null;
-let floorsProvider: () => string[] = () => [];
+let unwatch: (() => void) | null = null;
 
 /**
  * 單一 Socket.IO 連線（前端架構：即時資料）。
  * - 每次（重新）連線都用目前記憶體裡的 access token
  * - 後端以 token 到期主動斷線（auth.expired）或連線時回 TOKEN_EXPIRED → refresh 後重連
- * - 連上後訂閱上方列選的樓層；換樓層重送 subscribe
+ * - 訂閱的樓層由頁面決定（useWatchFloors）；改變時重送 subscribe
  */
-export function connectRealtime(floors: () => string[]): void {
-  floorsProvider = floors;
+export function connectRealtime(): void {
   if (socket) return;
-  const rt = useRealtime.getState();
-  rt.setConn('connecting');
+  useRealtime.getState().setConn('connecting');
 
   socket = io({
     path: '/ws',
@@ -46,14 +46,25 @@ export function connectRealtime(floors: () => string[]): void {
     if (reason === 'io server disconnect') void reauth();
   });
 
-  socket.on('robot.state', (m: RobotLive) => {
-    const s = useRealtime.getState();
-    if (s.floor === 'all' || s.floor === m.floor) s.upsert(m);
-  });
+  socket.on('robot.state', (m: RobotLive) => useRealtime.getState().upsert(m));
   socket.on('robot.online', (m: { code: string; online: boolean; removed?: boolean }) =>
     useRealtime.getState().setOnline(m.code, m.online, m.removed),
   );
   socket.on('robot.cmdResult', (m: CmdResult) => useRealtime.getState().addCmdResult(m));
+  socket.on('stats.tick', (m: Stats) => useRealtime.getState().setStats(m));
+  socket.on('teleop.revoked', (m: { code: string; by: string; reason: 'takeover' | 'estop' }) =>
+    useToast
+      .getState()
+      .show(m.reason === 'estop' ? t('teleop.revoked.estop', { code: m.code }) : t('teleop.revoked.takeover', m), 'warn'),
+  );
+
+  let last = useRealtime.getState().watch;
+  unwatch = useRealtime.subscribe((s) => {
+    if (s.watch !== last) {
+      last = s.watch;
+      void resubscribe();
+    }
+  });
 }
 
 async function reauth() {
@@ -61,13 +72,14 @@ async function reauth() {
   if (token && socket && !socket.connected) socket.connect();
 }
 
-/** 換樓層後呼叫 */
-export async function resubscribe(): Promise<void> {
+async function resubscribe(): Promise<void> {
   if (!socket?.connected) return;
-  await socket.emitWithAck('subscribe', { floors: floorsProvider() });
+  await socket.emitWithAck('subscribe', { floors: useRealtime.getState().watch });
 }
 
 export function disconnectRealtime(): void {
+  unwatch?.();
+  unwatch = null;
   socket?.removeAllListeners();
   socket?.disconnect();
   socket = null;

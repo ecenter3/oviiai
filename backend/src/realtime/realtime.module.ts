@@ -3,9 +3,10 @@ import { AuthModule } from '../auth/auth.module';
 import { CommandsModule } from '../commands/commands.module';
 import { FleetModule } from '../fleet/fleet.module';
 import { RealtimeGateway } from './realtime.gateway';
+import { StatsService } from './stats.service';
 
 @Module({
   imports: [AuthModule, FleetModule, CommandsModule],
-  providers: [RealtimeGateway],
+  providers: [RealtimeGateway, StatsService],
 })
 export class RealtimeModule {}

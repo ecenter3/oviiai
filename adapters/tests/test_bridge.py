@@ -79,3 +79,43 @@ async def test_teleop_watchdog_stops_robot(setup, monkeypatch):
     await asyncio.sleep(0.5)
     assert d.state == "idle" and d._vel == (0.0, 0.0, 0.0)
     wd.cancel()
+
+
+async def test_teleop_ignored_while_estopped(setup):
+    """PR #4 審查第 1 點：急停中收到遙控速度，轉接器不得讓機器人移動"""
+    b, d = setup
+    await b.on_message("rms/robot/B2-001/cmd", cmd("c1", "estop"))
+    await asyncio.wait_for(b._running["B2-001"], 2)
+    assert d.state == "estop"
+    t = json.dumps({"lockId": "L", "vx": 1.0, "vy": 0, "wz": 0, "ts": now_ms()})
+    await b.on_message("rms/robot/B2-001/teleop", t)
+    x0 = d.x
+    await asyncio.sleep(0.3)
+    assert d.state == "estop"
+    assert d._vel == (0.0, 0.0, 0.0)
+    assert d.x == x0
+    assert "B2-001" not in b._teleop_deadline
+
+
+async def test_estop_during_teleop_stops_motion(setup):
+    b, d = setup
+    t = json.dumps({"lockId": "L", "vx": 1.0, "vy": 0, "wz": 0, "ts": now_ms()})
+    await b.on_message("rms/robot/B2-001/teleop", t)
+    assert d.state == "teleop"
+    await b.on_message("rms/robot/B2-001/cmd", cmd("c1", "estop"))
+    await asyncio.wait_for(b._running["B2-001"], 2)
+    assert d.state == "estop" and d._vel == (0.0, 0.0, 0.0)
+    await b.on_message("rms/robot/B2-001/teleop", t)
+    assert d.state == "estop"
+
+
+async def test_mock_driver_refuses_teleop_when_estopped(setup):
+    """driver 自己也擋（bridge 之外的第二道）"""
+    from common.contracts import Teleop
+    from common.driver import CommandError
+
+    _, d = setup
+    d.state = "estop"
+    with pytest.raises(CommandError) as e:
+        await d.teleop(Teleop(lockId="L", vx=1, vy=0, wz=0, ts=now_ms()))
+    assert e.value.code == "ESTOP"

@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { type Teleop, topics } from '@oviiai/contracts';
+import type { Subscription } from 'rxjs';
 import { z } from 'zod';
 import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
@@ -22,10 +23,13 @@ const TeleopIn = z.object({
   wz: z.number().min(-TELEOP_MAX.wz).max(TELEOP_MAX.wz),
 });
 
-export type TeleopResult = 'ok' | 'not_holder' | 'not_found' | 'offline' | 'forbidden';
+export type TeleopResult = 'ok' | 'not_holder' | 'not_found' | 'offline' | 'forbidden' | 'estop';
 
 @Injectable()
-export class CommandsService {
+export class CommandsService implements OnModuleInit, OnModuleDestroy {
+  private readonly log = new Logger('Commands');
+  private sub?: Subscription;
+
   constructor(
     private readonly bus: CommandBus,
     private readonly lock: TeleopLock,
@@ -33,6 +37,19 @@ export class CommandsService {
     private readonly fleet: FleetService,
     private readonly mqtt: MqttService,
   ) {}
+
+  /** 機器人自己回報急停（實體急停按鈕）：釋放遙控鎖並通知持有人（PR #4 審查第 1 點） */
+  onModuleInit() {
+    this.sub = this.fleet.events$.subscribe((e) => {
+      if (e.type === 'state' && e.to === 'estop') {
+        void this.releaseOnEstop(e.robot, '機器人急停').catch((err) => this.log.error(String(err)));
+      }
+    });
+  }
+
+  onModuleDestroy() {
+    this.sub?.unsubscribe();
+  }
 
   async robot(id: string): Promise<RobotInfo> {
     const r = await this.registry.resolveId(id);
@@ -57,6 +74,13 @@ export class CommandsService {
       throw new AppError('INVALID_STATE', `${robot.code} 不支援此功能`, { cap: spec.cap });
     }
 
+    // 解除急停：別人正持有遙控鎖時不行，避免遙控中的機器人被第三人解除後立刻動起來（PR #4 審查第 2 點）
+    if (type === 'estop_release') {
+      const h = await this.lock.holder(robot.code);
+      if (h && h.userId !== actor.sub) {
+        throw new AppError('TELEOP_LOCKED', `${robot.code} 正由 ${h.username} 遙控中，無法解除急停`, { holder: h.username });
+      }
+    }
     if (!ALWAYS_ALLOWED.has(type)) {
       const live = this.fleet.get(robot.code);
       if (!live?.online) throw new AppError('ROBOT_OFFLINE', `${robot.code} 離線中`);
@@ -68,7 +92,17 @@ export class CommandsService {
         }
       }
     }
-    return this.bus.send(robot, type, parsed.data as Record<string, unknown>, actor.sub);
+    const rec = await this.bus.send(robot, type, parsed.data as Record<string, unknown>, actor.sub);
+    // 急停：先送出指令（最優先），再釋放遙控鎖，讓遙控端立刻停送
+    if (type === 'estop') await this.releaseOnEstop(robot, actor.username);
+    return rec;
+  }
+
+  private async releaseOnEstop(robot: RobotInfo, by: string) {
+    const prev = await this.lock.forceRelease(robot.code);
+    if (!prev) return;
+    this.log.warn(`${robot.code} 急停，釋放 ${prev.username} 的遙控鎖`);
+    this.lock.revoked$.next({ code: robot.code, robotId: robot.id, floor: robot.floor, previous: prev, by, reason: 'estop' });
   }
 
   /**
@@ -99,7 +133,14 @@ export class CommandsService {
       const t = await this.lock.takeOver(robot.code, actor.sub, actor.username);
       holder = t.holder;
       if (t.previous) {
-        this.lock.revoked$.next({ code: robot.code, robotId: robot.id, floor: robot.floor, previous: t.previous, by: actor.username });
+        this.lock.revoked$.next({
+          code: robot.code,
+          robotId: robot.id,
+          floor: robot.floor,
+          previous: t.previous,
+          by: actor.username,
+          reason: 'takeover',
+        });
       }
     }
     await this.bus.send(robot, 'pause', {}, actor.sub);
@@ -125,6 +166,8 @@ export class CommandsService {
     if (!msg.success) return 'not_holder';
     const robot = await this.registry.resolveId(msg.data.robotId);
     if (!robot) return 'not_found';
+    // 急停中一律不轉發（PR #4 審查第 1 點）；轉接器那一層也會擋
+    if (this.fleet.get(robot.code)?.state === 'estop') return 'estop';
     if (!(await this.lock.renew(robot.code, msg.data.lockId, user.sub))) return 'not_holder';
     if (!this.mqtt.connected) return 'offline';
     const out: Teleop = { lockId: msg.data.lockId, vx: msg.data.vx, vy: msg.data.vy, wz: msg.data.wz, ts: Date.now() };
