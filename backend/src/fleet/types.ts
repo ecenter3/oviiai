@@ -27,6 +27,8 @@ export interface RobotInfo {
   code: string;
   floor: string;
   adapter: string;
+  /** 能力清單（ptz、light、talk、follow、lift、env），後端與前端依此判斷，不做品牌判斷 */
+  caps: string[];
 }
 
 export type OfflineReason = 'telemetry_timeout' | 'adapter_reported' | 'adapter_down';

@@ -48,6 +48,7 @@ export class AuthGuard implements CanActivate {
       rid: user.roleId,
       displayName: user.displayName,
       roleName: user.roleName,
+      isSystem: user.isSystem,
       perms: user.perms,
     };
 

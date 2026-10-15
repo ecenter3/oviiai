@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Subject } from 'rxjs';
 import { KYSELY, type Database } from '../db/database.module';
+import { WarnOnce } from '../common/warn-once';
 import type { RobotInfo } from './types';
 
 const RELOAD_MS = 30_000;
@@ -13,20 +15,30 @@ const MISS_RELOAD_MS = 10_000;
 export class RobotRegistry {
   private readonly log = new Logger('RobotRegistry');
   private byCode = new Map<string, RobotInfo>();
+  private byId = new Map<string, RobotInfo>();
   private loadedAt = 0;
   private lastMissReload = 0;
-  private readonly warned = new Set<string>();
+  private readonly warn = new WarnOnce(this.log);
+
+  /** 重新載入後不在清單裡的機器人（被停用或刪除），fleet 據此清掉即時狀態（PR #3 審查第 1 點） */
+  readonly removed$ = new Subject<RobotInfo>();
 
   constructor(@Inject(KYSELY) private readonly db: Database) {}
 
   async load(): Promise<void> {
     const rows = await this.db
       .selectFrom('robots')
-      .select(['id', 'code', 'floor_id', 'adapter'])
+      .select(['id', 'code', 'floor_id', 'adapter', 'caps'])
       .where('enabled', '=', true)
       .execute();
-    this.byCode = new Map(rows.map((r) => [r.code, { id: r.id, code: r.code, floor: r.floor_id, adapter: r.adapter }]));
+    const next = new Map<string, RobotInfo>(
+      rows.map((r) => [r.code, { id: r.id, code: r.code, floor: r.floor_id, adapter: r.adapter, caps: r.caps }]),
+    );
+    const gone = [...this.byCode.values()].filter((r) => !next.has(r.code));
+    this.byCode = next;
+    this.byId = new Map([...next.values()].map((r) => [r.id, r]));
     this.loadedAt = Date.now();
+    for (const r of gone) this.removed$.next(r);
   }
 
   all(): RobotInfo[] {
@@ -35,22 +47,28 @@ export class RobotRegistry {
 
   /** 查不到時最多每 10 秒重讀一次資料庫（剛新增的機器人不必等 30 秒） */
   async resolve(code: string): Promise<RobotInfo | undefined> {
-    const now = Date.now();
-    if (now - this.loadedAt > RELOAD_MS) await this.load();
+    await this.refreshIfStale();
     let r = this.byCode.get(code);
-    if (!r && now - this.lastMissReload > MISS_RELOAD_MS) {
-      this.lastMissReload = now;
+    if (!r && Date.now() - this.lastMissReload > MISS_RELOAD_MS) {
+      this.lastMissReload = Date.now();
       await this.load();
       r = this.byCode.get(code);
     }
-    if (!r && !this.warned.has(code)) {
-      this.warned.add(code);
-      this.log.warn(`未登記或已停用的機器人 ${code}，訊息丟棄`);
-    }
+    if (!r) this.warn.warn(code, `未登記或已停用的機器人 ${code}，訊息丟棄`);
     return r;
+  }
+
+  async resolveId(id: string): Promise<RobotInfo | undefined> {
+    await this.refreshIfStale();
+    return this.byId.get(id);
   }
 
   get(code: string): RobotInfo | undefined {
     return this.byCode.get(code);
+  }
+
+  /** 定期重讀，也讓停用的機器人在 30 秒內從畫面消失 */
+  async refreshIfStale(): Promise<void> {
+    if (Date.now() - this.loadedAt > RELOAD_MS) await this.load();
   }
 }

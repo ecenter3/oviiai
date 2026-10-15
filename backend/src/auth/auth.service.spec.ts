@@ -90,6 +90,7 @@ describe('AuthService', () => {
       lockedUntil: null,
       roleId: 'r1',
       roleName: '警衛',
+      isSystem: false,
       perms: ['monitor', 'op.estop'],
       failedLogins: 0,
     });

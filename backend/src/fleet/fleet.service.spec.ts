@@ -1,3 +1,4 @@
+import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '../db/database.module';
 import type { MqttService } from '../mqtt/mqtt.service';
@@ -8,8 +9,8 @@ import type { TelemetryWriter } from './telemetry-writer';
 import type { FleetEvent, RobotInfo } from './types';
 
 const ROBOTS: RobotInfo[] = [
-  { id: '11111111-1111-4111-8111-111111111111', code: 'B2-001', floor: '1f', adapter: 'mock' },
-  { id: '22222222-2222-4222-8222-222222222222', code: 'ANBOT-001', floor: 'b1', adapter: 'anbot' },
+  { id: '11111111-1111-4111-8111-111111111111', code: 'B2-001', floor: '1f', adapter: 'mock', caps: [] },
+  { id: '22222222-2222-4222-8222-222222222222', code: 'ANBOT-001', floor: 'b1', adapter: 'anbot', caps: [] },
 ];
 
 function telemetry(over: Record<string, unknown> = {}) {
@@ -25,7 +26,9 @@ function telemetry(over: Record<string, unknown> = {}) {
 
 function setup() {
   const byCode = new Map(ROBOTS.map((r) => [r.code, r]));
+  const removed$ = new Subject<RobotInfo>();
   const registry = {
+    removed$,
     load: async () => {},
     all: () => ROBOTS,
     get: (c: string) => byCode.get(c),
@@ -39,6 +42,7 @@ function setup() {
   const redis = {
     hset: async (k: string, v: Record<string, unknown>) => redisStore.set(k, { ...redisStore.get(k), ...v }),
     hget: async () => null,
+    del: async (...keys: string[]) => keys.forEach((k) => redisStore.delete(k)),
   };
   const stateLog: Record<string, unknown>[] = [];
   const db = {
@@ -50,7 +54,7 @@ function setup() {
   const events: FleetEvent[] = [];
   svc.out$.subscribe((m) => out.push(m));
   svc.events$.subscribe((e) => events.push(e));
-  return { svc, out, events, rows, stateLog, redisStore };
+  return { svc, out, events, rows, stateLog, redisStore, removed$ };
 }
 
 describe('FleetService', () => {
@@ -171,5 +175,22 @@ describe('FleetService', () => {
     await svc.handleTelemetry('B2-001', telemetry());
     await svc.handleTelemetry('ANBOT-001', telemetry({ pose: { x: 0, y: 0, yaw: 0, floor: 'b1' } }));
     expect(svc.snapshot(['b1']).map((s) => s.code)).toEqual(['ANBOT-001']);
+  });
+
+  it('機器人被停用：從即時狀態與 Redis 移除，推 robot.online removed（PR #3 審查第 1 點）', async () => {
+    const { svc, out, redisStore, removed$ } = setup();
+    // 只測移除邏輯：直接呼叫 onModuleInit 裡訂閱的處理
+    (svc as unknown as { registry: { removed$: Subject<RobotInfo> } }).registry.removed$.subscribe((r) =>
+      (svc as unknown as { purge: (r: RobotInfo) => Promise<void> }).purge(r),
+    );
+    await svc.handleTelemetry('B2-001', telemetry());
+    out.length = 0;
+    removed$.next(ROBOTS[0]);
+    await vi.waitFor(() => expect(svc.get('B2-001')).toBeUndefined());
+    expect(redisStore.has('robot:B2-001')).toBe(false);
+    expect(svc.snapshot(['1f'])).toEqual([]);
+    expect(out).toEqual([
+      { event: 'robot.online', floor: '1f', data: { robotId: ROBOTS[0].id, code: 'B2-001', online: false, removed: true } },
+    ]);
   });
 });
