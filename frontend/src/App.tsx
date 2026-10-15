@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireLogin, RequirePage } from './components/RequirePage';
 import { LoginPage } from './pages/LoginPage';
-import { MonitorPage } from './pages/MonitorPage';
+import { MonitorPage } from './pages/monitor/MonitorPage';
 import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './pages/StatusPages';
 import { PAGES } from './routes';
 import { useAuth } from './stores/auth';

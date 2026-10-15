@@ -1,18 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { api } from '../api/client';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { t, type MessageKey } from '../i18n';
-import { connectRealtime, disconnectRealtime, resubscribe } from '../realtime/socket';
+import { connectRealtime, disconnectRealtime } from '../realtime/socket';
 import { buildMenu } from '../routes';
 import { useAuth } from '../stores/auth';
 import { type Conn, useRealtime } from '../stores/realtime';
-
-export interface Floor {
-  id: string;
-  name: string;
-  sort: number;
-}
+import { ChangePasswordDialog } from './ChangePasswordDialog';
+import { Toaster } from './Toaster';
 
 const CONN_TEXT: Record<Conn, MessageKey> = {
   connected: 'top.realtime.connected',
@@ -21,71 +15,162 @@ const CONN_TEXT: Record<Conn, MessageKey> = {
   forbidden: 'top.realtime.forbidden',
 };
 
-/** 版面：左側分組選單＋上方列（樓層、連線狀態、使用者）＋內容區 */
+const SIDE_KEY = 'oviiai.side';
+const readSide = () => {
+  try {
+    return localStorage.getItem(SIDE_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+};
+
+/** 版面（原型）：頂欄（選單開關、系統名稱、統計、使用者、時鐘）＋左側分組選單＋內容區 */
 export function Layout() {
   const { user, perms, logout } = useAuth();
-  const { conn, floor, setFloor } = useRealtime();
-  const floors = useQuery({ queryKey: ['floors'], queryFn: () => api<Floor[]>('/floors') });
+  const conn = useRealtime((s) => s.conn);
+  const stats = useRealtime((s) => s.stats);
+  const location = useLocation();
   const menu = buildMenu(perms);
-  const floorIds = useRef<string[]>([]);
-  floorIds.current = (floors.data ?? []).map((x) => x.id);
+  const [sideOpen, setSideOpen] = useState(readSide);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  // 分組展開狀態：預設只展開目前頁面所在的組（原型行為）
+  const current = menu.find((g) => g.items.some((p) => matches(p.path, location.pathname)))?.group;
+  const [open, setOpen] = useState<Set<MessageKey>>(() => new Set(current ? [current] : [menu[0]?.group]));
 
-  // 進入登入後版面時連線一次；訂閱的樓層每次都讀最新值
   useEffect(() => {
-    connectRealtime(() => {
-      const f = useRealtime.getState().floor;
-      return f === 'all' ? floorIds.current : [f];
-    });
+    connectRealtime();
     return () => disconnectRealtime();
   }, []);
 
   useEffect(() => {
-    void resubscribe();
-  }, [floor, floors.data]);
+    if (current) setOpen((s) => (s.has(current) ? s : new Set(s).add(current)));
+  }, [current]);
+
+  function toggleSide() {
+    setSideOpen((v) => {
+      try {
+        localStorage.setItem(SIDE_KEY, v ? 'collapsed' : 'open');
+      } catch {
+        /* 不記住也沒關係 */
+      }
+      return !v;
+    });
+  }
+
+  const toggle = (g: MessageKey) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      if (n.has(g)) n.delete(g);
+      else n.add(g);
+      return n;
+    });
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">{t('app.name')}</div>
-        <nav>
+    <div className="app">
+      <header className="topbar">
+        <div className="tleft">
+          <button type="button" className="hamb" onClick={toggleSide} aria-label={t('menu.toggle')} aria-expanded={sideOpen}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="brand">{t('app.name')}</div>
+        </div>
+        <div className="tstat" aria-live="polite">
+          <span>
+            {t('top.stat.online')}
+            <b>{stats ? `${stats.online}/${stats.total}` : '—'}</b>
+          </span>
+          <span>
+            {t('top.stat.working')}
+            <b>{stats?.working ?? '—'}</b>
+          </span>
+          <span>
+            {t('top.stat.charging')}
+            <b>{stats?.charging ?? '—'}</b>
+          </span>
+          <span>
+            {t('top.stat.fault')}
+            <b className={stats?.fault ? 'alert' : ''}>{stats?.fault ?? '—'}</b>
+          </span>
+          <span>
+            {t('top.stat.todayTasks')}
+            <b>{stats?.todayTasks ?? '—'}</b>
+          </span>
+          <span>
+            {t('top.stat.openAlarms')}
+            <b className={stats?.openAlarms ? 'alert' : ''}>{stats?.openAlarms ?? '—'}</b>
+          </span>
+        </div>
+        <div className="tright">
+          {conn !== 'connected' && <span className={`conn conn-${conn}`}>{t(CONN_TEXT[conn])}</span>}
+          <div className="ubtn">
+            <span>{user?.displayName}</span>
+            <small>{user?.role.name}</small>
+          </div>
+          <Clock />
+        </div>
+      </header>
+      <div className="shell">
+        <nav className={`side${sideOpen ? '' : ' collapsed'}`} aria-label={t('app.name')}>
           {menu.map((g) => (
-            <section key={g.group}>
-              <h2>{t(g.group)}</h2>
-              {g.items.map((p) => (
-                <NavLink key={p.path} to={p.path} end={p.path === '/'}>
-                  {t(p.title)}
-                </NavLink>
-              ))}
-            </section>
+            <div key={g.group}>
+              <button type="button" className="grp" aria-expanded={open.has(g.group)} onClick={() => toggle(g.group)}>
+                {t(g.group)}
+                <i aria-hidden="true">▾</i>
+              </button>
+              {open.has(g.group) && (
+                <div className="grp-items">
+                  {g.items.map((p) => (
+                    <NavLink key={p.path} to={p.path} end={p.path === '/'} className={({ isActive }) => `item${isActive ? ' active' : ''}`}>
+                      {t(p.title)}
+                    </NavLink>
+                  ))}
+                  {g.group === 'menu.group.user' && (
+                    <>
+                      <button type="button" className="item" onClick={() => setPwdOpen(true)}>
+                        {t('menu.changePassword')}
+                      </button>
+                      <button type="button" className="item" onClick={() => void logout()}>
+                        {t('menu.logout')}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </nav>
-      </aside>
-      <div className="main">
-        <header className="topbar">
-          <label>
-            {t('top.floor')}
-            <select value={floor} onChange={(e) => setFloor(e.target.value)}>
-              <option value="all">{t('top.floor.all')}</option>
-              {(floors.data ?? []).map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {conn !== 'connected' && <span className={`conn conn-${conn}`}>{t(CONN_TEXT[conn])}</span>}
-          <span className="spacer" />
-          <span className="who">
-            {user?.displayName}（{user?.role.name}）
-          </span>
-          <button type="button" onClick={() => void logout()}>
-            {t('top.logout')}
-          </button>
-        </header>
-        <main className="content">
+        <div className="views">
           <Outlet />
-        </main>
+        </div>
       </div>
+      {pwdOpen && <ChangePasswordDialog onClose={() => setPwdOpen(false)} />}
+      <Toaster />
     </div>
   );
+}
+
+function matches(route: string, path: string) {
+  return route === '/' ? path === '/' : path === route || path.startsWith(`${route}/`);
+}
+
+const clockFmt = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** 頂欄時鐘：Asia/Taipei */
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  return <div className="clock">{clockFmt.format(now)}</div>;
 }

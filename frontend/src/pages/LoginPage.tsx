@@ -49,7 +49,7 @@ export function LoginPage() {
             {error}
           </p>
         )}
-        <button type="submit" disabled={busy}>
+        <button type="submit" className="btn primary" disabled={busy}>
           {busy ? t('login.submitting') : t('login.submit')}
         </button>
       </form>
