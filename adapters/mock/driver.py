@@ -1,6 +1,7 @@
 """模擬機器人：沒有真機時開發後端與前端用。
 
 會移動到目標點、耗電、充電、支援遙控；可設定 fail_rate 模擬導航失敗。
+pause 讓導航停在原地（指令仍在執行），resume 從目前位置接續原本的導航——與真機（X30 等）一致。
 """
 from __future__ import annotations
 
@@ -34,6 +35,11 @@ class MockDriver(RobotDriver):
         self._connected = False
         self._vel = (0.0, 0.0, 0.0)
         self._loop_task: asyncio.Task | None = None
+        # 導航進行中時的狀態（navigating／patrolling／returning）；None 表示沒有導航
+        self._goal_state: str | None = None
+        # 清除＝暫停：導航迴圈停在原地等待 resume
+        self._go = asyncio.Event()
+        self._go.set()
         if teleop:
             self.capabilities = self.capabilities | {"teleop"}
 
@@ -86,8 +92,13 @@ class MockDriver(RobotDriver):
 
     async def _goto(self, gx: float, gy: float, state: str) -> None:
         self.state = state
+        self._goal_state = state
         try:
             while True:
+                if not self._go.is_set():
+                    self.speed = 0.0
+                    await self._go.wait()
+                    self.state = state
                 dx, dy = gx - self.x, gy - self.y
                 dist = math.hypot(dx, dy)
                 if dist < 0.05:
@@ -100,18 +111,28 @@ class MockDriver(RobotDriver):
                     raise CommandError("LOW_BATTERY", "battery depleted")
         finally:
             self.speed = 0.0
+            self._goal_state = None
         if random.random() < self.fail_rate:
             raise CommandError("MOCK_NAV_FAILED", "simulated navigation failure")
 
     async def execute(self, cmd: Command) -> dict[str, Any] | None:
         t = cmd.type
-        if t in ("stop", "pause"):
-            self.state = "paused" if t == "pause" else "idle"
+        if t == "pause":
+            # 導航停在原地，指令不結束；沒有導航時只是標成暫停
+            self._go.clear()
+            self.speed = 0.0
+            self.state = "paused"
             return None
         if t == "resume":
+            self._go.set()
+            self.state = self._goal_state or "idle"
+            return None
+        if t == "stop":
+            self._go.set()
             self.state = "idle"
             return None
         if t == "estop":
+            self._go.set()
             self._vel = (0.0, 0.0, 0.0)
             self.speed = 0.0
             self.state = "estop"
@@ -124,6 +145,7 @@ class MockDriver(RobotDriver):
             return {"objectKey": f"mock/{self.code}/{cmd.cmdId}.jpg"}
 
         self.task_ref = cmd.cmdId
+        self._go.set()  # 新的移動指令取代暫停中的舊導航
         try:
             if t == "navigate":
                 await self._goto(float(cmd.args["x"]), float(cmd.args["y"]), "navigating")
@@ -164,4 +186,5 @@ class MockDriver(RobotDriver):
         self._vel = (0.0, 0.0, 0.0)
         self.speed = 0.0
         if self.state == "teleop":
-            self.state = "idle"
+            # 遙控前有暫停中的導航：回到暫停，等 resume 或新指令
+            self.state = "paused" if self._goal_state and not self._go.is_set() else "idle"

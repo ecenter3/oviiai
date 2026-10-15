@@ -23,6 +23,8 @@ log = logging.getLogger("bridge")
 TELEMETRY_PERIOD_S = 1.0
 TELEOP_TIMEOUT_S = 0.5
 HEARTBEAT_PERIOD_S = 5.0
+#: 會取代機器人目前動作的指令
+MOVE_COMMANDS = frozenset({"navigate", "patrol", "charge", "stop", "estop"})
 RECONNECT_DELAY_S = 3.0
 
 
@@ -42,6 +44,8 @@ class Bridge:
         self._client: aiomqtt.Client | None = None
         self._teleop_deadline: dict[str, float] = {}
         self._running: dict[str, asyncio.Task] = {}
+        # 非移動指令（pause、ptz…）：只為了測試能等它完成
+        self._side: dict[str, asyncio.Task] = {}
 
     # ---------------------------------------------------------------- run
     async def run(self) -> None:
@@ -165,11 +169,17 @@ class Bridge:
             await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="rejected", error=AckError(code=e.code, msg=e.msg)))
             return
         await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="accepted"))
-        # 新的移動指令會取代舊的：舊的那筆由 driver 回報 CANCELLED
-        prev = self._running.pop(d.code, None)
-        if prev and not prev.done() and cmd.type in {"navigate", "patrol", "charge", "stop", "estop"}:
-            prev.cancel()
-        self._running[d.code] = asyncio.create_task(self._run_cmd(d, cmd))
+        task = asyncio.create_task(self._run_cmd(d, cmd))
+        # 新的移動指令會取代舊的：舊的那筆回報 CANCELLED。
+        # 只有移動指令記為「目前執行中」；pause、resume、ptz 等不取代它，
+        # 否則之後的 navigate 找不到舊導航、兩個導航同時跑。
+        if cmd.type in MOVE_COMMANDS:
+            prev = self._running.pop(d.code, None)
+            if prev and not prev.done():
+                prev.cancel()
+            self._running[d.code] = task
+        else:
+            self._side[d.code] = task
 
     async def _run_cmd(self, d: RobotDriver, cmd: Command) -> None:
         try:
