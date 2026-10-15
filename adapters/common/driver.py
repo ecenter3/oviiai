@@ -56,6 +56,10 @@ class RobotDriver(ABC):
     async def execute(self, cmd: Command) -> dict[str, Any] | None:
         """執行到完成才 return（回 done）；失敗 raise CommandError（回 failed）。"""
 
+    def is_estopped(self) -> bool:
+        """急停中回 True。bridge 據此丟棄遙控速度；真機韌體不一定會擋，轉接器必須自己擋。"""
+        return False
+
     async def teleop(self, t: Teleop) -> None:
         raise CommandError("UNSUPPORTED", "teleop not supported")
 

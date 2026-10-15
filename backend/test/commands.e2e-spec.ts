@@ -261,6 +261,36 @@ describe.skipIf(!ready)('指令與遙控（e2e）', () => {
       expect(r.body.lockId).toMatch(/^l_/);
     });
 
+    it('急停：釋放遙控鎖並通知持有人；之後 teleop 不轉發；別人持鎖時不能解除急停（PR #4 審查第 1、2 點）', async () => {
+      const lock = (await post(guard, '/teleop/acquire').expect(200)).body;
+      const s = connect(guard);
+      const revoked: { reason: string; by: string }[] = [];
+      const errs: { code: string }[] = [];
+      s.on('teleop.revoked', (m) => revoked.push(m));
+      s.on('teleop.error', (e) => errs.push(e));
+      await until(() => s.connected);
+
+      await post(guard2, '/commands').send({ type: 'estop' }).expect(202);
+      await until(() => revoked.length > 0);
+      expect(revoked[0]).toMatchObject({ reason: 'estop' });
+      expect(await app.get<Redis>(REDIS).get(`teleop:${CODE}`)).toBeNull();
+
+      // 機器人回報進入急停後，就算拿著舊的 lockId 也不轉發
+      await telemetry('estop');
+      const n = teleops.length;
+      s.emit('teleop.cmd', { robotId, lockId: lock.lockId, vx: 0.3, vy: 0, wz: 0 });
+      await until(() => errs.length > 0);
+      expect(errs[0].code).toBe('ROBOT_ESTOP');
+      expect(teleops.length).toBe(n);
+
+      // 急停中有人持鎖（例如鎖在急停前取得、急停由實體按鈕觸發且尚未處理）：別人不能解除
+      await app.get<Redis>(REDIS).set(`teleop:${CODE}`, `l_x|${users[1]}|other`, 'EX', 30);
+      await post(guard, '/commands').send({ type: 'estop_release' }).expect(409);
+      await app.get<Redis>(REDIS).del(`teleop:${CODE}`);
+      await post(guard, '/commands').send({ type: 'estop_release' }).expect(202);
+      await telemetry('idle');
+    });
+
     it('急停中不能取鎖', async () => {
       await telemetry('estop');
       await post(guard, '/teleop/acquire').expect(409);

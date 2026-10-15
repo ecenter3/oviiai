@@ -94,6 +94,11 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
     return [...this.live.values()].filter((s) => floors.includes(s.floor));
   }
 
+  /** 全部樓層（統計用） */
+  all(): LiveState[] {
+    return [...this.live.values()];
+  }
+
   get(code: string): LiveState | undefined {
     return this.live.get(code);
   }

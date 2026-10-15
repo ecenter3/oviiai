@@ -53,7 +53,7 @@
 make up            # 起資料庫、Redis、EMQX、S3
 make down
 make test          # 全部測試（contracts、轉接器、後端、前端）
-make seed-mock     # 在資料庫登記 6 台模擬機器人（後端只接受已登記的機器人）
+make seed-mock     # 登記模擬場域：6 台機器人、樓層尺寸、充電樁、攝影機（後端只接受已登記的機器人）
 make mock          # 啟動模擬機器人（3 品牌各 2 台）
 make contracts     # 改了 packages/contracts 後重新編譯，後端才看得到
 cd backend && npm run start:dev

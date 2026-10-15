@@ -1,3 +1,4 @@
+import { Subject } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
@@ -24,6 +25,8 @@ const user = (perms: string[], over: Partial<Principal> = {}): Principal => ({
 
 function setup(opts: { online?: boolean; state?: string; holder?: TeleopHolder } = {}) {
   const sent: { type: string; args: unknown; userId: string | null }[] = [];
+  const revoked: { code: string; previous: TeleopHolder; by: string; reason: string }[] = [];
+  const events$ = new Subject<unknown>();
   const published: { topic: string; body: string }[] = [];
   let holder = opts.holder;
   const bus = {
@@ -44,17 +47,23 @@ function setup(opts: { online?: boolean; state?: string; holder?: TeleopHolder }
     },
     renew: async (_c: string, lockId: string, userId: string) => holder?.lockId === lockId && holder.userId === userId,
     release: async () => ((holder = undefined), true),
-    revoked$: { next: () => {} },
+    forceRelease: async () => {
+      const prev = holder;
+      holder = undefined;
+      return prev;
+    },
+    revoked$: { next: (m: (typeof revoked)[number]) => revoked.push(m) },
   } as unknown as TeleopLock;
   const registry = { resolveId: async (id: string) => (id === ROBOT.id ? ROBOT : undefined) } as unknown as RobotRegistry;
   const fleet = {
+    events$,
     get: () => (opts.online === false ? { online: false } : { online: true, state: opts.state ?? 'idle' }),
   } as unknown as FleetService;
   const mqtt = {
     connected: true,
     publish: async (topic: string, body: string) => void published.push({ topic, body }),
   } as unknown as MqttService;
-  return { svc: new CommandsService(bus, lock, registry, fleet, mqtt), sent, published, getHolder: () => holder };
+  return { svc: new CommandsService(bus, lock, registry, fleet, mqtt), sent, published, revoked, events$, getHolder: () => holder };
 }
 
 async function code(p: Promise<unknown>) {
@@ -159,5 +168,50 @@ describe('遙控鎖', () => {
     expect(await svc.teleop(user(['op.estop']), msg)).toBe('forbidden');
     expect(await svc.teleop(user(OPS), { ...msg, vx: 9 })).toBe('not_holder');
     expect(published).toHaveLength(1);
+  });
+
+  it('急停中 teleop.cmd 不轉發（PR #4 審查第 1 點）', async () => {
+    const { svc, published } = setup({ state: 'estop', holder: { lockId: 'l_1', userId: 'u1', username: 'guard1' } });
+    expect(await svc.teleop(user(OPS), { robotId: ROBOT.id, lockId: 'l_1', vx: 0.5, vy: 0, wz: 0 })).toBe('estop');
+    expect(published).toEqual([]);
+  });
+});
+
+describe('急停與遙控鎖（PR #4 審查第 1、2 點）', () => {
+  it('從 API 急停：指令先送出，再釋放遙控鎖並通知持有人', async () => {
+    const holder = { lockId: 'l_1', userId: 'other', username: '王小明' };
+    const { svc, sent, revoked, getHolder } = setup({ holder });
+    await svc.issue(ROBOT.id, 'estop', {}, user(OPS));
+    expect(sent.map((s) => s.type)).toEqual(['estop']);
+    expect(getHolder()).toBeUndefined();
+    expect(revoked).toEqual([expect.objectContaining({ code: 'B2-001', previous: holder, by: 'guard1', reason: 'estop' })]);
+  });
+
+  it('沒有人遙控時急停不發通知', async () => {
+    const { svc, revoked } = setup();
+    await svc.issue(ROBOT.id, 'estop', {}, user(OPS));
+    expect(revoked).toEqual([]);
+  });
+
+  it('機器人自己回報急停（實體按鈕）也釋放遙控鎖', async () => {
+    const holder = { lockId: 'l_1', userId: 'u1', username: 'guard1' };
+    const { svc, events$, revoked, getHolder } = setup({ holder });
+    svc.onModuleInit();
+    events$.next({ type: 'state', robot: ROBOT, from: 'teleop', to: 'estop', at: Date.now() });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getHolder()).toBeUndefined();
+    expect(revoked[0]).toMatchObject({ by: '機器人急停', reason: 'estop' });
+    svc.onModuleDestroy();
+  });
+
+  it('解除急停：別人持有遙控鎖時回 TELEOP_LOCKED；持有人自己或沒人持有時可以', async () => {
+    const other = setup({ state: 'estop', holder: { lockId: 'l_1', userId: 'other', username: '王小明' } });
+    expect(await code(other.svc.issue(ROBOT.id, 'estop_release', {}, user(OPS)))).toBe('TELEOP_LOCKED');
+    expect(other.sent).toEqual([]);
+
+    const self = setup({ state: 'estop', holder: { lockId: 'l_1', userId: 'u1', username: 'guard1' } });
+    expect(await code(self.svc.issue(ROBOT.id, 'estop_release', {}, user(OPS)))).toBe('OK');
+    const none = setup({ state: 'estop' });
+    expect(await code(none.svc.issue(ROBOT.id, 'estop_release', {}, user(OPS)))).toBe('OK');
   });
 });

@@ -24,9 +24,9 @@ migrate:
 seed:
 	cd backend && npm run seed
 
-# 開發用：在資料庫登記 make mock 的 6 台模擬機器人
+# 開發用：登記 make mock 的模擬場域（6 台機器人、樓層尺寸、充電樁、攝影機）
 seed-mock:
-	$(COMPOSE) exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' < db/seeds/mock-robots.sql
+	$(COMPOSE) exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' < db/seeds/mock-site.sql
 
 test: test-contracts test-adapters test-backend test-frontend
 

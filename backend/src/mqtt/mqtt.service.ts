@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import mqtt, { type MqttClient } from 'mqtt';
+import { randomBytes } from 'node:crypto';
 
 type Handler = (topic: string, payload: Buffer) => void;
 
@@ -31,7 +32,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     const url = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
     this.client = mqtt.connect(url, {
-      clientId: `rms-backend-${process.pid}`,
+      // client id 必須唯一：重複時 broker 會踢掉先連上的那一個（同一程序裡的多個實例，例如平行測試）
+      clientId: `rms-backend-${process.pid}-${randomBytes(4).toString('hex')}`,
       username: process.env.MQTT_BACKEND_USER || undefined,
       password: process.env.MQTT_BACKEND_PASSWORD || undefined,
       reconnectPeriod: 2000,

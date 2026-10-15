@@ -136,6 +136,11 @@ class Bridge:
             await self._on_teleop(d, payload)
 
     async def _on_teleop(self, d: RobotDriver, payload: Any) -> None:
+        if d.is_estopped():
+            # 急停中丟棄遙控速度（後端也會擋，這裡是第二道）；不續期 watchdog
+            self._teleop_deadline.pop(d.code, None)
+            log.warning("%s teleop ignored: robot is in emergency stop", d.code)
+            return
         try:
             t = Teleop.model_validate_json(payload)
             await d.teleop(t)

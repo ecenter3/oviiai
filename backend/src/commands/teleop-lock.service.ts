@@ -30,8 +30,15 @@ const RELEASE = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call
  */
 @Injectable()
 export class TeleopLock {
-  /** 被強制接管時通知原持有人 */
-  readonly revoked$ = new Subject<{ code: string; robotId: string; floor: string; previous: TeleopHolder; by: string }>();
+  /** 被強制接管或因急停被釋放時通知原持有人 */
+  readonly revoked$ = new Subject<{
+    code: string;
+    robotId: string;
+    floor: string;
+    previous: TeleopHolder;
+    by: string;
+    reason: 'takeover' | 'estop';
+  }>();
 
   constructor(@Inject(REDIS) private readonly redis: Redis) {}
 
@@ -62,6 +69,11 @@ export class TeleopLock {
     const cur = await this.holder(code);
     if (!cur || cur.lockId !== lockId || cur.userId !== userId) return false;
     return (await this.redis.eval(RENEW, 1, key(code), encode(cur), String(TELEOP_TTL_SEC * 1000))) === 1;
+  }
+
+  /** 不論持有人是誰都釋放（急停時用）；回傳被釋放的持有人 */
+  async forceRelease(code: string): Promise<TeleopHolder | undefined> {
+    return decode(await this.redis.getdel(key(code)));
   }
 
   async release(code: string, holder: TeleopHolder): Promise<boolean> {
