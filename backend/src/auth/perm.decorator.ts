@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import type { PermCode } from './perms';
+import type { PermCode } from '@oviiai/contracts';
 
 export const PERMS = 'auth:perms';
 export const AUTHENTICATED = 'auth:authenticated';

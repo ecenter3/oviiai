@@ -1,7 +1,9 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { z } from 'zod';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { RequirePerm } from '../auth/perm.decorator';
-import { isPermCode, PERM_TREE, type PermCode } from '../auth/perms';
+import type { Principal } from '../auth/principal';
+import { isPermCode, PERM_TREE, type PermCode } from '@oviiai/contracts';
 import { ZodPipe } from '../common/zod.pipe';
 import { OpLog } from '../oplog/oplog.decorator';
 import { RolesService } from './roles.service';
@@ -40,14 +42,18 @@ export class RolesController {
 
   @Post('roles')
   @OpLog('role.create', (_req, res) => roleTarget((res as { id?: string } | undefined)?.id))
-  create(@Body(new ZodPipe(CreateRoleBody)) body: z.infer<typeof CreateRoleBody>) {
-    return this.roles.create({ ...body, perms: body.perms as PermCode[] });
+  create(@Body(new ZodPipe(CreateRoleBody)) body: z.infer<typeof CreateRoleBody>, @CurrentUser() actor: Principal) {
+    return this.roles.create({ ...body, perms: body.perms as PermCode[] }, actor);
   }
 
   @Patch('roles/:id')
   @OpLog('role.update', (req) => roleTarget(req.params.id))
-  update(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(UpdateRoleBody)) body: z.infer<typeof UpdateRoleBody>) {
-    return this.roles.update(id, { ...body, perms: body.perms as PermCode[] | undefined });
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(UpdateRoleBody)) body: z.infer<typeof UpdateRoleBody>,
+    @CurrentUser() actor: Principal,
+  ) {
+    return this.roles.update(id, { ...body, perms: body.perms as PermCode[] | undefined }, actor);
   }
 
   @Delete('roles/:id')

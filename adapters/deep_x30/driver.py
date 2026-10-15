@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from common.contracts import Battery, Command, Fault, Pose, RobotEvent, Telemetry
+from common.contracts import Battery, Command, Fault, Pose, RobotEvent, Telemetry, now_ms
 from common.driver import CommandError, RobotDriver
 from common.transform import Affine2D
 
@@ -64,6 +64,7 @@ class X30Driver(RobotDriver):
         else:
             state = "idle"
         return Telemetry(
+            ts=now_ms(),
             pose=Pose(x=x, y=y, yaw=self.to_platform.apply_yaw(s.angleYaw), floor=self.floor),
             battery=Battery(pct=max(0, min(100, s.electricity)), charging=charging),
             state=state, speed=abs(s.speed), taskRef=self.task_ref, faults=faults,
@@ -117,12 +118,12 @@ class X30Driver(RobotDriver):
             self._busy, self.task_ref = False, None
 
         if res.errorCode == 0:
-            self.emit(RobotEvent(type="goal_reached", data={"cmdId": cmd.cmdId, "value": res.value}))
+            self.emit(RobotEvent(ts=now_ms(), type="goal_reached", data={"cmdId": cmd.cmdId, "value": res.value}))
             return {"value": res.value}
         reason = p.ERROR_STATUS.get(res.errorStatus, f"未知錯誤 {res.errorStatus}")
         if res.errorStatus in p.FAULT_STATUSES:
-            self.emit(RobotEvent(type="fault", data={"code": f"X30_{res.errorStatus}", "msg": reason}))
-        self.emit(RobotEvent(type="goal_failed", data={"cmdId": cmd.cmdId, "status": res.errorStatus}))
+            self.emit(RobotEvent(ts=now_ms(), type="fault", data={"code": f"X30_{res.errorStatus}", "msg": reason}))
+        self.emit(RobotEvent(ts=now_ms(), type="goal_failed", data={"cmdId": cmd.cmdId, "status": res.errorStatus}))
         code = "X30_CANCELLED" if res.errorCode == 2 else f"X30_{res.errorStatus}"
         raise CommandError(code, reason)
 

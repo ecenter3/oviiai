@@ -20,6 +20,21 @@ jobs:
       - run: ruff check --output-format=github .
       - run: pytest -q
 
+  contracts:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run lint
+      # T-07：與 adapters 的 pytest 讀同一份 fixtures/messages.json
+      - run: npm test
+
   backend:
     runs-on: ubuntu-24.04
     defaults:
@@ -37,15 +52,30 @@ jobs:
           --health-cmd "pg_isready -U rms -d rms"
           --health-interval 5s
           --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+      emqx:
+        image: emqx/emqx:5.8.3
+        ports: ["1883:1883"]
+        options: >-
+          --health-cmd "emqx ctl status"
+          --health-interval 5s
+          --health-retries 30
     env:
       DATABASE_URL: postgres://rms:ci@localhost:5432/rms
       JWT_SECRET: ci-only-secret-ci-only-secret-ci-only
+      REDIS_URL: redis://localhost:6379
+      MQTT_URL: mqtt://localhost:1883
       COOKIE_SECURE: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # 後端引用 packages/contracts 的編譯結果
+      - run: npm install && npm run build
+        working-directory: packages/contracts
       - run: npm install
       - run: npm run lint
       # migration 必須可重複執行：up → 全部 down → 再 up

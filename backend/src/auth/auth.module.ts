@@ -23,6 +23,6 @@ import { MeController } from './me.controller';
     { provide: AUTH_CONFIG, useFactory: authConfig },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
-  exports: [AuthRepository],
+  exports: [AuthRepository, JwtModule],
 })
 export class AuthModule {}

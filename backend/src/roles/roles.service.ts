@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { assertWithinOwnPerms } from '../auth/escalation';
+import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
 import { PG_UNIQUE_VIOLATION, pgCode } from '../common/pg-errors';
 import { KYSELY, type Database } from '../db/database.module';
-import { ALL_PERMS, type PermCode } from '../auth/perms';
+import { ALL_PERMS, type PermCode } from '@oviiai/contracts';
 
 export interface RoleView {
   id: string;
@@ -37,7 +39,8 @@ export class RolesService {
     return view(row);
   }
 
-  async create(dto: SaveRole): Promise<RoleView> {
+  async create(dto: SaveRole, actor: Principal): Promise<RoleView> {
+    assertWithinOwnPerms(actor, dto.perms, '角色的權限');
     try {
       const { id } = await this.db
         .insertInto('roles')
@@ -52,9 +55,11 @@ export class RolesService {
   }
 
   /** 改名、改權限；系統角色（系統管理員）固定擁有全部權限，避免把自己鎖在門外 */
-  async update(id: string, dto: Partial<SaveRole>): Promise<RoleView> {
+  async update(id: string, dto: Partial<SaveRole>, actor: Principal): Promise<RoleView> {
     const role = await this.get(id);
     const perms = dto.perms && normalize(dto.perms);
+    // 只檢查新加入的權限：移除自己沒有的權限不算提升
+    if (perms) assertWithinOwnPerms(actor, perms.filter((p) => !role.perms.includes(p)), '新增的權限');
     if (role.isSystem && perms && perms.join() !== normalize(role.perms as PermCode[]).join()) {
       throw new AppError('INVALID_STATE', '系統角色的權限不可修改');
     }

@@ -1,14 +1,18 @@
 """轉接器與後端之間的 MQTT 訊息格式。
 
-必須與 packages/contracts/src/index.ts 保持一致（工程開發手冊「機器人轉接器」章節）。
+必須與 packages/contracts/src/index.ts 保持一致（工程開發手冊「機器人接入」§2）。
+兩邊都以 packages/contracts/fixtures/messages.json 測試（tests/test_contracts.py），改格式時先改 fixtures。
 座標一律是平台座標（公尺、弧度）。
+
+所有模型用 strict 模式：不把 "1" 轉成 1、"yes" 轉成 True，與 zod 的行為一致。
+ts 一律必填（與 zod 相同），建構時傳 ts=now_ms()。
 """
 from __future__ import annotations
 
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 RobotState = Literal[
     "idle", "navigating", "patrolling", "teleop", "returning",
@@ -33,32 +37,41 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-class Pose(BaseModel):
+class Msg(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+
+class Pose(Msg):
     x: float
     y: float
     yaw: float
     floor: str
 
 
-class Battery(BaseModel):
+class Battery(Msg):
     pct: float = Field(ge=0, le=100)
     charging: bool
     voltage: float | None = None
 
 
-class Fault(BaseModel):
+class Fault(Msg):
     code: str
     level: Literal[1, 2, 3]
     msg: str
 
 
-class Net(BaseModel):
+class Sensor(Msg):
+    value: float
+    unit: str
+
+
+class Net(Msg):
     rssi: float | None = None
     latencyMs: float | None = None
 
 
-class Telemetry(BaseModel):
-    ts: int = Field(default_factory=now_ms)
+class Telemetry(Msg):
+    ts: int
     pose: Pose
     battery: Battery
     state: RobotState
@@ -66,16 +79,16 @@ class Telemetry(BaseModel):
     taskRef: str | None = None
     faults: list[Fault] = []
     net: Net | None = None
-    sensors: dict[str, dict[str, Any]] | None = None
+    sensors: dict[str, Sensor] | None = None
 
 
-class RobotEvent(BaseModel):
-    ts: int = Field(default_factory=now_ms)
+class RobotEvent(Msg):
+    ts: int
     type: EventType
     data: dict[str, Any] | None = None
 
 
-class Command(BaseModel):
+class Command(Msg):
     cmdId: str
     ts: int
     type: CommandType
@@ -83,20 +96,20 @@ class Command(BaseModel):
     timeoutSec: float | None = None
 
 
-class AckError(BaseModel):
+class AckError(Msg):
     code: str
     msg: str
 
 
-class Ack(BaseModel):
+class Ack(Msg):
     cmdId: str
-    ts: int = Field(default_factory=now_ms)
+    ts: int
     status: AckStatus
     error: AckError | None = None
     result: dict[str, Any] | None = None
 
 
-class Teleop(BaseModel):
+class Teleop(Msg):
     lockId: str
     vx: float
     vy: float
@@ -104,9 +117,17 @@ class Teleop(BaseModel):
     ts: int
 
 
-class AdapterStatus(BaseModel):
-    ts: int = Field(default_factory=now_ms)
+class AdapterStatus(Msg):
+    """心跳每 5 秒一次。Last Will 是 {name, alive: false}，沒有 ts（遺囑在連線時就固定）。"""
+    ts: int | None = None
     name: str
-    version: str
-    robots: list[str]
-    connected: list[str]
+    alive: bool
+    version: str | None = None
+    robots: list[str] | None = None
+    connected: list[str] | None = None
+
+
+class RobotOnline(Msg):
+    """rms/robot/{code}/online（retain）"""
+    online: bool
+    ts: int

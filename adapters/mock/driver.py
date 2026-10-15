@@ -9,7 +9,7 @@ import math
 import random
 from typing import Any
 
-from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop
+from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop, now_ms
 from common.driver import CommandError, RobotDriver
 
 TICK_S = 0.1
@@ -73,6 +73,7 @@ class MockDriver(RobotDriver):
 
     async def read_telemetry(self) -> Telemetry:
         return Telemetry(
+            ts=now_ms(),
             pose=Pose(x=round(self.x, 3), y=round(self.y, 3), yaw=round(self.yaw, 3), floor=self.floor),
             battery=Battery(pct=round(self.battery, 1), charging=self.state == "charging"),
             state=self.state, speed=round(self.speed, 2), taskRef=self.task_ref,
@@ -112,7 +113,7 @@ class MockDriver(RobotDriver):
             return None
         if t == "estop":
             self.state = "estop"
-            self.emit(RobotEvent(type="estop_pressed"))
+            self.emit(RobotEvent(ts=now_ms(), type="estop_pressed"))
             return None
         if t == "estop_release":
             self.state = "idle"
@@ -124,21 +125,21 @@ class MockDriver(RobotDriver):
         try:
             if t == "navigate":
                 await self._goto(float(cmd.args["x"]), float(cmd.args["y"]), "navigating")
-                self.emit(RobotEvent(type="goal_reached", data={"cmdId": cmd.cmdId}))
+                self.emit(RobotEvent(ts=now_ms(), type="goal_reached", data={"cmdId": cmd.cmdId}))
             elif t == "patrol":
                 for i, pt in enumerate(cmd.args.get("points", [])):
                     await self._goto(float(pt["x"]), float(pt["y"]), "patrolling")
-                    self.emit(RobotEvent(type="waypoint_reached", data={"cmdId": cmd.cmdId, "index": i}))
+                    self.emit(RobotEvent(ts=now_ms(), type="waypoint_reached", data={"cmdId": cmd.cmdId, "index": i}))
             elif t == "charge":
                 await self._goto(self.dock["x"], self.dock["y"], "returning")
                 self.state = "charging"
-                self.emit(RobotEvent(type="charge_started"))
+                self.emit(RobotEvent(ts=now_ms(), type="charge_started"))
                 return None
             self.state = "idle"
             return None
         except CommandError:
             self.state = "idle"
-            self.emit(RobotEvent(type="goal_failed", data={"cmdId": cmd.cmdId}))
+            self.emit(RobotEvent(ts=now_ms(), type="goal_failed", data={"cmdId": cmd.cmdId}))
             raise
         except asyncio.CancelledError:
             self.state = "idle"

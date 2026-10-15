@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Transaction } from 'kysely';
 import { AuthRepository } from '../auth/auth.repository';
+import { assertWithinOwnPerms } from '../auth/escalation';
 import { hashPassword } from '../auth/password';
 import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
@@ -76,8 +77,8 @@ export class UsersService {
     return view(row);
   }
 
-  async create(dto: CreateUser): Promise<UserView> {
-    await this.assertRoleExists(dto.roleId);
+  async create(dto: CreateUser, actor: Principal): Promise<UserView> {
+    assertWithinOwnPerms(actor, await this.rolePerms(dto.roleId), '指派的角色');
     try {
       const { id } = await this.db
         .insertInto('users')
@@ -104,7 +105,8 @@ export class UsersService {
     if (id === actor.sub && (dto.enabled === false || (dto.roleId && dto.roleId !== actor.rid))) {
       throw new AppError('INVALID_STATE', '不能停用自己或變更自己的角色');
     }
-    if (dto.roleId) await this.assertRoleExists(dto.roleId);
+    await this.assertCanManage(id, actor);
+    if (dto.roleId) assertWithinOwnPerms(actor, await this.rolePerms(dto.roleId), '指派的角色');
 
     await this.db.transaction().execute(async (tx) => {
       const losesAdmin = dto.enabled === false || dto.roleId !== undefined;
@@ -129,6 +131,7 @@ export class UsersService {
 
   async remove(id: string, actor: Principal): Promise<void> {
     if (id === actor.sub) throw new AppError('INVALID_STATE', '不能刪除自己');
+    await this.assertCanManage(id, actor);
     try {
       await this.db.transaction().execute(async (tx) => {
         await this.assertKeepsAnAdmin(tx, id, undefined);
@@ -144,7 +147,8 @@ export class UsersService {
   }
 
   /** 系統產生臨時密碼，同時解除鎖定、讓所有裝置登出 */
-  async resetPassword(id: string): Promise<{ tempPassword: string }> {
+  async resetPassword(id: string, actor: Principal): Promise<{ tempPassword: string }> {
+    await this.assertCanManage(id, actor);
     const pw = tempPassword();
     const r = await this.db
       .updateTable('users')
@@ -156,9 +160,22 @@ export class UsersService {
     return { tempPassword: pw };
   }
 
-  private async assertRoleExists(roleId: string) {
-    const role = await this.db.selectFrom('roles').select('id').where('id', '=', roleId).executeTakeFirst();
+  private async rolePerms(roleId: string): Promise<string[]> {
+    const role = await this.db.selectFrom('roles').select('perms').where('id', '=', roleId).executeTakeFirst();
     if (!role) throw new AppError('VALIDATION_FAILED', '角色不存在', { fields: { roleId: '角色不存在' } });
+    return role.perms;
+  }
+
+  /** 只能修改、停用、刪除、重設密碼「角色權限不超過自己」的帳號 */
+  private async assertCanManage(userId: string, actor: Principal) {
+    const target = await this.db
+      .selectFrom('users as u')
+      .innerJoin('roles as r', 'r.id', 'u.role_id')
+      .select('r.perms')
+      .where('u.id', '=', userId)
+      .executeTakeFirst();
+    if (!target) throw new AppError('NOT_FOUND', '找不到帳號');
+    assertWithinOwnPerms(actor, target.perms, '此帳號的權限');
   }
 
   /**

@@ -66,8 +66,8 @@ export class UsersController {
 
   @Post()
   @OpLog('user.create', (_req, res) => userTarget((res as { id?: string } | undefined)?.id))
-  create(@Body(new ZodPipe(CreateUserBody)) body: z.infer<typeof CreateUserBody>) {
-    return this.users.create(body);
+  create(@Body(new ZodPipe(CreateUserBody)) body: z.infer<typeof CreateUserBody>, @CurrentUser() actor: Principal) {
+    return this.users.create(body, actor);
   }
 
   @Patch(':id')
@@ -90,7 +90,7 @@ export class UsersController {
   @Post(':id/reset-password')
   @HttpCode(200)
   @OpLog('user.reset_password', (req) => userTarget(req.params.id))
-  resetPassword(@Param('id', ParseUUIDPipe) id: string) {
-    return this.users.resetPassword(id);
+  resetPassword(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: Principal) {
+    return this.users.resetPassword(id, actor);
   }
 }
