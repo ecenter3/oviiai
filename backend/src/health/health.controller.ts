@@ -8,13 +8,13 @@ export interface HealthReport {
 
 @Controller('health')
 export class HealthController {
-  // 之後逐項接上：db、redis、mqtt、minio、mediamtx、各轉接器心跳
+  // 之後逐項接上：db、redis、mqtt、s3、mediamtx、各轉接器心跳
   @Get()
   check(): HealthReport {
     return {
       status: 'ok',
       ts: Date.now(),
-      checks: { db: 'unknown', redis: 'unknown', mqtt: 'unknown', minio: 'unknown', mediamtx: 'unknown' },
+      checks: { db: 'unknown', redis: 'unknown', mqtt: 'unknown', s3: 'unknown', mediamtx: 'unknown' },
     };
   }
 }

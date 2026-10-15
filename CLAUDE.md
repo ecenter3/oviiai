@@ -13,7 +13,7 @@
 ## 架構
 ```
 瀏覽器 ──HTTPS/WS──> backend (NestJS) ──MQTT──> adapters/<brand> (Python) ──SDK──> 機器人
-                         │  PostgreSQL+TimescaleDB / Redis / MinIO
+                         │  PostgreSQL+TimescaleDB / Redis / S3 (SeaweedFS)
 攝影機 RTSP ──> MediaMTX ──WebRTC(WHEP)──> 瀏覽器
 ```
 - 後端是模組化單體，不拆微服務。品牌差異只存在 `adapters/`，後端與前端不得出現品牌判斷（能力用 capabilities 清單）。
@@ -48,7 +48,7 @@
 
 ## 常用指令
 ```bash
-make up            # 起資料庫、Redis、EMQX、MinIO
+make up            # 起資料庫、Redis、EMQX、S3
 make down
 make test          # 全部測試
 make mock          # 啟動模擬機器人（3 品牌各 2 台）

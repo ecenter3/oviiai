@@ -47,12 +47,12 @@ cd ~/oviiai && cp .env.example .env
 
 ## 3. 啟動
 ```bash
-make up                 # PostgreSQL、Redis、EMQX、MinIO
+make up                 # PostgreSQL、Redis、EMQX、S3
 cd adapters && python3.11 -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && cd ..
 make test-adapters
 make mock               # 模擬 6 台機器人
 ```
-管理介面：EMQX http://localhost:18083 ／ MinIO http://localhost:9001
+管理介面：EMQX http://localhost:18083 ／ S3 檔案瀏覽 http://localhost:8888
 
 ## 4. 連真機器人
 | 品牌 | 筆電要做的事 |

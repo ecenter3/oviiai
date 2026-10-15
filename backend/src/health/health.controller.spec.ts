@@ -5,6 +5,6 @@ describe('HealthController', () => {
   it('reports status and every dependency', () => {
     const r = new HealthController().check();
     expect(r.status).toBe('ok');
-    expect(Object.keys(r.checks).sort()).toEqual(['db', 'mediamtx', 'minio', 'mqtt', 'redis']);
+    expect(Object.keys(r.checks).sort()).toEqual(['db', 'mediamtx', 'mqtt', 'redis', 's3']);
   });
 });

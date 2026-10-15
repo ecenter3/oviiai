@@ -68,7 +68,7 @@ if ! command -v docker >/dev/null || ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 make up
-ok "資料庫、Redis、EMQX、MinIO 已啟動"
+ok "資料庫、Redis、EMQX、S3 已啟動"
 
 # 8. 測試
 (cd adapters && .venv/bin/python -m pytest -q)
@@ -83,7 +83,7 @@ cat <<EOF
   make mock                                # 模擬 6 台機器人
   (cd backend && npm run start:dev)        # 後端 http://localhost:3000/api/health
   (cd frontend && npm run dev)             # 前端 http://localhost:5173
-管理介面：EMQX http://localhost:18083 ／ MinIO http://localhost:9001
+管理介面：EMQX http://localhost:18083 ／ S3 檔案瀏覽 http://localhost:8888
 
 Claude 桌面版 Code 分頁請開啟此資料夾（WSL 內）：$DIR
 EOF
