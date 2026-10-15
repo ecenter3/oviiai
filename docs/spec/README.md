@@ -8,6 +8,8 @@
 | `技術設計文件.md` | 架構決策 D1–D12、容量、可靠性、安全 | [連結](https://claude.ai/code/artifact/7a46dd40-c87a-412e-a99a-97edcb96f57e) |
 | `系統規格書.md` | 功能需求、權限表、驗收標準 | [連結](https://claude.ai/code/artifact/aebd84d6-236b-4036-8fa1-956c6e408842) |
 
+可操作原型在 `docs/prototype/oviiai-monitor.html`（瀏覽器直接開啟）。
+
 文件裡的架構圖、流程圖是互動元件，匯出後只剩「embedded content」佔位文字，請看線上版。
 
 ## 文件與 repo 的差異（以 repo 為準）
