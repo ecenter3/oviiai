@@ -65,6 +65,10 @@ export function initialStatus(
   s: ApprovalSettings,
   now = new Date(),
 ): 'pending_approval' | 'queued' {
-  const approvalOn = s.approval && (!s.approvalUntil || taipeiDate(now) <= s.approvalUntil);
-  return t.priority !== 'P1' && approvalOn && t.source !== 'schedule' ? 'pending_approval' : 'queued';
+  return t.priority !== 'P1' && approvalOn(s, now) && t.source !== 'schedule' ? 'pending_approval' : 'queued';
+}
+
+/** 審批是否實際開啟：設定開啟，且今天（台北）≤ approvalUntil */
+export function approvalOn(s: ApprovalSettings, now = new Date()): boolean {
+  return s.approval && (!s.approvalUntil || taipeiDate(now) <= s.approvalUntil);
 }

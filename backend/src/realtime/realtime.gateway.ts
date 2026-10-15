@@ -31,6 +31,9 @@ const Subscribe = z.object({ floors: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)
 
 export const floorRoom = (floor: string) => `floor:${floor}`;
 export const userRoom = (userId: string) => `user:${userId}`;
+/** 看得到任務內容的連線（與 GET /tasks 相同：dispatch 或 monitor；PR #6 審查第 3 點） */
+export const TASKS_ROOM = 'tasks';
+const TASK_PERMS = { mode: 'any' as const, codes: ['dispatch' as const, 'monitor' as const] };
 
 interface SocketData {
   user: Principal;
@@ -49,7 +52,7 @@ function wsError(code: string, message: string) {
  * 驗證只在連線時做一次（PR #2 審查第 4 點）；access token 到期主動斷線，前端以新 token 重連。
  *
  * 伺服器 → 瀏覽器：robot.state、robot.online（fleet）、robot.cmdResult（指令匯流排）、teleop.revoked、teleop.error、
- *   stats.tick（每 5 秒，所有連線；連線時先送一次）、task.updated（所有連線）
+ *   stats.tick（每 5 秒，所有連線；連線時先送一次）、task.updated（有 dispatch 或 monitor 權限的連線）
  * 瀏覽器 → 伺服器：subscribe {floors}、teleop.cmd {robotId, lockId, vx, vy, wz}
  */
 @WebSocketGateway({ path: '/ws', serveClient: false })
@@ -87,8 +90,8 @@ export class RealtimeGateway
         const rooms = [floorRoom(m.floor), ...(m.userId ? [userRoom(m.userId)] : [])];
         server.to(rooms).emit('robot.cmdResult', m.data);
       }),
-      // 任務更新推給所有連線（實時監控的派工任務面板顯示全部樓層；量很小）
-      this.tasks.changes$.subscribe((t) => server.emit('task.updated', t)),
+      // 任務更新只推給有 dispatch 或 monitor 權限的連線（不分樓層：監控頁任務面板顯示全部樓層）
+      this.tasks.changes$.subscribe((t) => server.to(TASKS_ROOM).emit('task.updated', t)),
       this.lock.revoked$.subscribe((m) =>
         server.to(userRoom(m.previous.userId)).emit('teleop.revoked', { robotId: m.robotId, code: m.code, by: m.by, reason: m.reason }),
       ),
@@ -182,6 +185,7 @@ export class RealtimeGateway
     };
     data.floors = [];
     await socket.join(userRoom(u.id));
+    if (satisfies(u.perms, TASK_PERMS)) await socket.join(TASKS_ROOM);
     if (payload.exp) {
       data.expiryTimer = setTimeout(
         () => {

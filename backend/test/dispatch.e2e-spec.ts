@@ -80,6 +80,9 @@ describe.skipIf(!ready)('派工（e2e）', () => {
     });
   }
 
+  /** 這台收到的指令類型 */
+  const types = (code: string) => bots[code].cmds.map((c) => c.type);
+
   /** 完成機器人手上的導航：回 done、回到待命 */
   async function finish(code: string) {
     const b = bots[code];
@@ -143,8 +146,18 @@ describe.skipIf(!ready)('派工（e2e）', () => {
       const m = JSON.parse(payload.toString());
       b.cmds.push(m);
       if (b.reject) void ack(b, m.cmdId, 'rejected', { code: 'MOCK_REJECT', msg: 'nope' });
-      else if (m.type === 'navigate' || m.type === 'patrol') void ack(b, m.cmdId, 'accepted');
-      else void ack(b, m.cmdId, 'accepted').then(() => ack(b, m.cmdId, 'done'));
+      else if (m.type === 'navigate' || m.type === 'patrol') {
+        b.state = 'navigating';
+        void ack(b, m.cmdId, 'accepted').then(() => tele(b));
+      } else {
+        // 真機行為：pause 停在原地（paused）；resume 接續原本的導航（navigating）；stop 回待命
+        if (m.type === 'pause') b.state = 'paused';
+        if (m.type === 'resume') b.state = 'navigating';
+        if (m.type === 'stop') b.state = 'idle';
+        void ack(b, m.cmdId, 'accepted')
+          .then(() => ack(b, m.cmdId, 'done'))
+          .then(() => tele(b));
+      }
     });
     await app.get(RobotRegistry).load();
     for (const b of Object.values(bots)) await setBot(b.code, {});
@@ -292,14 +305,58 @@ describe.skipIf(!ready)('派工（e2e）', () => {
     expect(bots[code].cmds.filter((c) => c.type === 'navigate')).toHaveLength(2);
   });
 
-  it('遙控接管 → 暫停；歸還 → 繼續（系統規格書 §4.3）', async () => {
-    const r = await createTask({ target: { x: 6, y: 5 } }).expect(201);
+  it('遙控接管 → 暫停；歸還 → 由派工重送導航給同一台，不送 resume、不派給別台（PR #6 審查第 2 點）', async () => {
+    const r = await createTask({ target: { x: 21, y: 5 } }).expect(201);
     const t = await waitStatus(r.body.id, 'running');
-    const robotId = t.robotId as string;
-    await auth(http().post(`/api/v1/robots/${robotId}/teleop/acquire`)).expect(200);
+    const code = t.robotCode as string;
+    expect(code).toBe(`D${tag}-2`);
+    await auth(http().post(`/api/v1/robots/${t.robotId}/teleop/acquire`)).expect(200);
     expect((await waitStatus(r.body.id, 'paused')).progress.pausedBy).toBe('teleop');
-    await auth(http().post(`/api/v1/robots/${robotId}/teleop/release`)).expect(204);
-    await waitStatus(r.body.id, 'running');
+    await until(() => app.get(FleetService).get(code)?.state === 'paused');
+
+    await auth(http().post(`/api/v1/robots/${t.robotId}/teleop/release`)).expect(204);
+    const again = await waitStatus(r.body.id, 'running');
+    expect(again.robotCode).toBe(code);
+    expect(types(code)).not.toContain('resume');
+    expect(types(code).filter((x) => x === 'navigate')).toHaveLength(2);
+    // 別台都沒收到導航（真機 resume 會接續舊導航，若同時又回佇列就會派給別台）
+    for (const other of Object.keys(bots).filter((c) => c !== code)) expect(types(other)).not.toContain('navigate');
+
+    await finish(code);
+    expect((await waitStatus(r.body.id, 'done')).robotCode).toBe(code);
+  });
+
+  it('沒有平台任務時歸還遙控照常送 resume', async () => {
+    const id = bots[`D${tag}-1`].id;
+    await auth(http().post(`/api/v1/robots/${id}/teleop/acquire`)).expect(200);
+    await auth(http().post(`/api/v1/robots/${id}/teleop/release`)).expect(204);
+    await until(() => types(`D${tag}-1`).includes('resume'));
+  });
+
+  it('遙控鎖到期（瀏覽器關掉沒歸還）→ 保底掃描自動恢復（PR #6 審查第 1 點）', async () => {
+    const r = await createTask({ target: { x: 21, y: 5 } }).expect(201);
+    const t = await waitStatus(r.body.id, 'running');
+    await auth(http().post(`/api/v1/robots/${t.robotId}/teleop/acquire`)).expect(200);
+    await waitStatus(r.body.id, 'paused');
+    await app.get<Redis>(REDIS).del(`teleop:${t.robotCode}`); // 模擬 30 秒沒續期、鎖過期
+    await app.get(DispatchService).sweep();
+    expect((await waitStatus(r.body.id, 'running')).robotCode).toBe(t.robotCode);
+  });
+
+  it('遙控中按急停 → 暫停原因改為急停；解除急停後才恢復（PR #6 審查第 1 點）', async () => {
+    const r = await createTask({ target: { x: 21, y: 5 } }).expect(201);
+    const t = await waitStatus(r.body.id, 'running');
+    const code = t.robotCode as string;
+    await auth(http().post(`/api/v1/robots/${t.robotId}/teleop/acquire`)).expect(200);
+    await waitStatus(r.body.id, 'paused');
+    await auth(http().post(`/api/v1/robots/${t.robotId}/commands`)).send({ type: 'estop' }).expect(202);
+    await until(async () => (await task(r.body.id)).progress.pausedBy === 'estop');
+    await setBot(code, { state: 'estop' });
+    await app.get(DispatchService).sweep();
+    expect((await task(r.body.id)).status).toBe('paused'); // 還在急停
+    await auth(http().post(`/api/v1/robots/${t.robotId}/commands`)).send({ type: 'estop_release' }).expect(202);
+    await setBot(code, { state: 'idle' });
+    expect((await waitStatus(r.body.id, 'running')).robotCode).toBe(code);
   });
 
   it('使用者對執行中的機器人按停止 → 任務 failed（人工介入）', async () => {
@@ -358,8 +415,188 @@ describe.skipIf(!ready)('派工（e2e）', () => {
     expect(list).toHaveLength(3);
     const mine = list.find((x) => x.code === t.robotCode)!;
     expect(mine.task?.code).toBe(r.body.code);
-    expect(mine.live.state).toBe('idle'); // 假轉接器沒有改狀態
+    expect(mine.live.state).toBe('navigating');
     const filtered = (await auth(http().get(`/api/v1/robots?floor=${FLOOR}&state=charging`)).expect(200)).body;
     expect(filtered).toEqual([]);
+  });
+
+  it('task.updated 只推給有 dispatch 或 monitor 權限的連線（PR #6 審查第 3 點）', async () => {
+    const url = `http://127.0.0.1:${(app.getHttpServer().address() as { port: number }).port}`;
+    const role = await db.insertInto('roles').values({ name: `${tag}-robots`, perms: ['robots', 'remote'] }).returning('id').executeTakeFirstOrThrow();
+    const u = await db
+      .insertInto('users')
+      .values({ username: `${tag}-rb`, display_name: 'rb', password_hash: await hashPassword(PW), role_id: role.id })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    try {
+      const rbToken = (await http().post('/api/v1/auth/login').send({ username: `${tag}-rb`, password: PW }).expect(200)).body.accessToken;
+      const watcher = io(url, { path: '/ws', auth: { token: rbToken }, transports: ['websocket'] });
+      const monitorSock = io(url, { path: '/ws', auth: { token }, transports: ['websocket'] });
+      sockets.push(watcher, monitorSock);
+      const gotRb: unknown[] = [];
+      const gotMon: unknown[] = [];
+      watcher.on('task.updated', (m) => gotRb.push(m));
+      monitorSock.on('task.updated', (m) => gotMon.push(m));
+      await until(() => watcher.connected && monitorSock.connected);
+      await createTask({ target: { x: 6, y: 5 } }).expect(201);
+      await until(() => gotMon.length > 0);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(gotRb).toEqual([]);
+      // robots 權限也打不了 GET /tasks
+      await http().get('/api/v1/tasks').set('Authorization', `Bearer ${rbToken}`).expect(403);
+    } finally {
+      await db.deleteFrom('op_logs').where('user_id', '=', u.id).execute();
+      await db.deleteFrom('users').where('id', '=', u.id).execute();
+      await db.deleteFrom('roles').where('id', '=', role.id).execute();
+    }
+  });
+
+  it('任務編號：Redis 流水號遺失時以資料庫最大值 + 1 重試，不會重複（PR #6 審查第 4 點）', async () => {
+    const a = (await createTask({ target: { x: 6, y: 5 } }).expect(201)).body;
+    const redis = app.get<Redis>(REDIS);
+    const day = a.code.slice(2, 10);
+    const n = Number(a.code.slice(-4));
+    // 模擬 Redis 資料遺失後流水號倒退：下一個 INCR 會產生和 a 相同的編號 → 唯一約束衝突 → 以資料庫最大值重試
+    await redis.set(`task:seq:${day}`, String(n - 1));
+    const b = (await createTask({ target: { x: 6, y: 5 } }).expect(201)).body;
+    expect(b.code).not.toBe(a.code);
+    expect(Number(b.code.slice(-4))).toBeGreaterThan(n);
+    const c = (await createTask({ target: { x: 6, y: 5 } }).expect(201)).body;
+    expect(Number(c.code.slice(-4))).toBe(Number(b.code.slice(-4)) + 1);
+  });
+
+  describe('P1 插隊（T-17）', () => {
+    const alerts: { type: string; task: { code: string } }[] = [];
+    beforeEach(() => {
+      alerts.length = 0;
+    });
+    beforeAll(() => {
+      app.get(DispatchService).alerts$.subscribe((a) => alerts.push(a));
+    });
+
+    /** 三台都在跑 P3（各自在原位附近） */
+    async function allBusy() {
+      const ids: string[] = [];
+      for (const [i, b] of Object.values(bots).entries()) {
+        const r = await createTask({ robotId: b.id, target: { x: [5, 20, 40][i], y: 6 } }).expect(201);
+        ids.push(r.body.id);
+      }
+      for (const id of ids) await waitStatus(id, 'running');
+      return ids;
+    }
+
+    it('中斷：沒有空車 → 中斷離 P1 目標最近的非 P1；被中斷的任務 paused（preempted_by）；送 stop 再派 P1', async () => {
+      const [, mid] = await allBusy();
+      const p1 = (await createTask({ priority: 'P1', target: { x: 22, y: 5 } }).expect(201)).body;
+      const t = await waitStatus(p1.id, 'running');
+      expect(t.robotCode).toBe(`D${tag}-2`); // x=20 最近
+      const victim = await task(mid);
+      expect(victim).toMatchObject({ status: 'paused', preemptedBy: p1.id, progress: { pausedBy: 'preempt' } });
+      const cmds = types(`D${tag}-2`);
+      expect(cmds.slice(-2)).toEqual(['stop', 'navigate']);
+      expect(alerts.map((a) => a.type)).toEqual(['p1_preempt']);
+    });
+
+    it('續做：P1 完成後被中斷的任務回佇列，派回同一台', async () => {
+      const [, mid] = await allBusy();
+      const p1 = (await createTask({ priority: 'P1', target: { x: 22, y: 5 } }).expect(201)).body;
+      await waitStatus(p1.id, 'running');
+      await finish(`D${tag}-2`);
+      await waitStatus(p1.id, 'done');
+      const back = await waitStatus(mid, 'running');
+      expect(back.robotCode).toBe(`D${tag}-2`);
+      expect(back.events.map((e: { type: string }) => e.type)).toContain('paused');
+    });
+
+    it('電量不足的不中斷：最近那台 35% → 中斷次近的', async () => {
+      await allBusy();
+      await setBot(`D${tag}-2`, { battery: 35 });
+      const p1 = (await createTask({ priority: 'P1', target: { x: 22, y: 5 } }).expect(201)).body;
+      expect((await waitStatus(p1.id, 'running')).robotCode).not.toBe(`D${tag}-2`);
+    });
+
+    it('無車告警：全部都在跑 P1 → 新的 P1 留在佇列最前、發一級告警一次；有車空出後派出', async () => {
+      const ids: string[] = [];
+      for (const [i, b] of Object.values(bots).entries()) {
+        ids.push((await createTask({ priority: 'P1', robotId: b.id, target: { x: [5, 20, 40][i], y: 6 } }).expect(201)).body.id);
+      }
+      for (const id of ids) await waitStatus(id, 'running');
+      const p1 = (await createTask({ priority: 'P1', target: { x: 22, y: 5 } }).expect(201)).body;
+      await until(() => alerts.some((a) => a.type === 'p1_no_robot'));
+      await app.get(DispatchService).runFloor(FLOOR);
+      await app.get(DispatchService).runFloor(FLOOR);
+      expect(alerts.filter((a) => a.type === 'p1_no_robot')).toHaveLength(1);
+      const q = await task(p1.id);
+      expect(q.status).toBe('queued');
+      expect(q.progress.noRobotAt).toBeGreaterThan(0);
+      expect(q.events.map((e: { type: string }) => e.type)).toContain('no_robot');
+
+      await finish(`D${tag}-1`);
+      await waitStatus(p1.id, 'running');
+    });
+
+    it('插隊關閉（dispatch.p1Preempt=false）→ 不中斷，發無車告警', async () => {
+      await allBusy();
+      await db.updateTable('settings').set({ value: 'false' }).where('key', '=', 'dispatch.p1Preempt').execute();
+      app.get(SettingsService).invalidate();
+      try {
+        const p1 = (await createTask({ priority: 'P1', target: { x: 22, y: 5 } }).expect(201)).body;
+        await until(() => alerts.some((a) => a.type === 'p1_no_robot'));
+        expect((await task(p1.id)).status).toBe('queued');
+        expect(alerts.some((a) => a.type === 'p1_preempt')).toBe(false);
+      } finally {
+        await db.updateTable('settings').set({ value: 'true' }).where('key', '=', 'dispatch.p1Preempt').execute();
+        app.get(SettingsService).invalidate();
+      }
+    });
+
+    it('P1 被取消時，被中斷的任務也會回來', async () => {
+      const [, mid] = await allBusy();
+      const p1 = (await createTask({ priority: 'P1', target: { x: 22, y: 5 } }).expect(201)).body;
+      await waitStatus(p1.id, 'running');
+      await auth(http().post(`/api/v1/tasks/${p1.id}/cancel`)).expect(200);
+      expect((await waitStatus(mid, 'running')).robotCode).toBe(`D${tag}-2`);
+    });
+  });
+
+  describe('審批到期自動關閉（T-18）', () => {
+    const setSetting = async (key: string, value: string) => {
+      await db.updateTable('settings').set({ value }).where('key', '=', key).execute();
+      app.get(SettingsService).invalidate();
+    };
+    let until0: unknown;
+    beforeAll(async () => {
+      until0 = (await db.selectFrom('settings').select('value').where('key', '=', 'dispatch.approvalUntil').executeTakeFirst())?.value;
+    });
+    afterAll(async () => {
+      await setSetting('dispatch.approvalUntil', JSON.stringify(until0));
+      await setSetting('dispatch.approval', 'false');
+    });
+
+    it('過了 approvalUntil：審批自動關閉，待審批任務轉入佇列並派出；GET /dispatch/mode 反映', async () => {
+      await setSetting('dispatch.approval', 'true');
+      await setSetting('dispatch.approvalUntil', '"2099-12-31"');
+      const p = (await createTask({ target: { x: 6, y: 5 } }).expect(201)).body;
+      expect(p.status).toBe('pending_approval');
+      expect((await auth(http().get('/api/v1/dispatch/mode')).expect(200)).body).toMatchObject({ approval: true, approvalUntil: '2099-12-31' });
+
+      await setSetting('dispatch.approvalUntil', '"2020-01-01"');
+      await app.get(DispatchService).sweep();
+      const t = await waitStatus(p.id, 'running');
+      expect(t.events.find((e: { type: string }) => e.type === 'queued').data).toMatchObject({ auto: true });
+      expect((await auth(http().get('/api/v1/dispatch/mode')).expect(200)).body).toMatchObject({ approval: false, approvalSetting: false });
+      const row = await db.selectFrom('settings').select('value').where('key', '=', 'dispatch.approval').executeTakeFirstOrThrow();
+      expect(row.value).toBe(false);
+    });
+
+    it('手動關閉審批：待審批任務也自動轉入佇列', async () => {
+      await setSetting('dispatch.approval', 'true');
+      await setSetting('dispatch.approvalUntil', '"2099-12-31"');
+      const p = (await createTask({ target: { x: 6, y: 5 } }).expect(201)).body;
+      expect(p.status).toBe('pending_approval');
+      await setSetting('dispatch.approval', 'false');
+      await app.get(DispatchService).sweep();
+      await waitStatus(p.id, 'running');
+    });
   });
 });

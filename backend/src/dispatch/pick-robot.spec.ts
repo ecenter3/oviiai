@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Candidate, eligible, pickRobot, planRound, type QueuedTask, queueOrder } from './pick-robot';
+import { type Candidate, eligible, pickPreemptVictim, pickRobot, planRound, type QueuedTask, queueOrder } from './pick-robot';
 import { canTransition, initialStatus, sourcesOf } from './task-state';
 
 const S = { minAccept: 40 };
@@ -139,5 +139,53 @@ describe('任務狀態機', () => {
     // 2027-01-31 台北時間當天仍審批，隔天（UTC 1/31 16:00 = 台北 2/1 00:00）起關閉
     expect(initialStatus({ priority: 'P3', source: 'manual' }, on, new Date('2027-01-31T15:59:00Z'))).toBe('pending_approval');
     expect(initialStatus({ priority: 'P3', source: 'manual' }, on, new Date('2027-01-31T16:00:00Z'))).toBe('queued');
+  });
+});
+
+describe('續做保留（PR #6 審查第 2 點）', () => {
+  const now = 1_000_000;
+  it('保留期內只派原本那台；它停在 paused 也可以', () => {
+    const t = task({ robotId: 'prev', reservedUntil: now + 30_000 });
+    const list = [robot({ robotId: 'near', x: 9 }), robot({ robotId: 'prev', x: 30, state: 'paused' })];
+    expect(pickRobot(t, list, S, now)?.robotId).toBe('prev');
+  });
+
+  it('保留期內原本那台暫時不能接（例如還在遙控過渡）→ 等，不給別台', () => {
+    const t = task({ robotId: 'prev', reservedUntil: now + 30_000 });
+    const list = [robot({ robotId: 'near', x: 9 }), robot({ robotId: 'prev', x: 30, state: 'teleop' })];
+    expect(pickRobot(t, list, S, now)).toBeNull();
+    // 保留期過後照常選最近
+    expect(pickRobot(t, list, S, now + 31_000)?.robotId).toBe('near');
+  });
+
+  it('原本那台電量不足，保留期內也不派它', () => {
+    const t = task({ robotId: 'prev', reservedUntil: now + 30_000 });
+    expect(pickRobot(t, [robot({ robotId: 'prev', battery: 20, state: 'paused' })], S, now)).toBeNull();
+  });
+
+  it('別台停在 paused 不算可用（只有原本那台例外）', () => {
+    expect(pickRobot(task(), [robot({ robotId: 'x', state: 'paused' })], S, now)).toBeNull();
+  });
+});
+
+describe('P1 插隊對象（T-17）', () => {
+  const p1 = task({ priority: 'P1', target: { x: 10, y: 0 } });
+  const busy = (over: Partial<Candidate>) => robot({ busy: true, state: 'navigating', taskPriority: 'P3', ...over });
+
+  it('選離 P1 目標最近、執行非 P1 任務、電量足夠的', () => {
+    const r = pickPreemptVictim(p1, [busy({ robotId: 'far', x: 30 }), busy({ robotId: 'near', x: 12 })], S);
+    expect(r?.robotId).toBe('near');
+  });
+
+  it.each([
+    ['執行 P1 任務', { taskPriority: 'P1' as const }],
+    ['電量不足', { battery: 30 }],
+    ['遙控中', { teleopLocked: true }],
+    ['急停', { state: 'estop' }],
+    ['離線', { online: false }],
+    ['別樓層', { floor: 'b1' }],
+    ['沒有任務（空閒的應由一般選車處理）', { busy: false, taskPriority: null }],
+  ])('%s → 不中斷', (_, over) => {
+    expect(pickPreemptVictim(p1, [busy(over)], S)).toBeNull();
   });
 });
