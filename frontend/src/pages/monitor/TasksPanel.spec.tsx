@@ -33,6 +33,7 @@ function setup(perms: string[], tasks: Task[]) {
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       if (url.startsWith('/api/v1/tasks?')) return new Response(JSON.stringify({ items: tasks, total: tasks.length, page: 1, size: 100 }));
+      if (url.endsWith('/dispatch/mode')) return new Response(JSON.stringify({ approval: !perms.includes('auto'), approvalSetting: true, approvalUntil: '2027-01-31', p1Preempt: true }));
       return new Response(JSON.stringify({}), { status: 200 });
     }),
   );
@@ -109,5 +110,32 @@ describe('派工任務面板', () => {
     const { onFocusRobot } = setup(['monitor'], [task({ id: 'c', code: 'T-C', status: 'running', robotId: 'r1', robotCode: 'B2-001' })]);
     fireEvent.click((await screen.findByText('T-C')).closest('.task')!);
     expect(onFocusRobot).toHaveBeenCalledWith(expect.objectContaining({ robotId: 'r1' }));
+  });
+
+  it('審批模式／自動派工標籤（原型）', async () => {
+    setup(['monitor'], []);
+    expect(await screen.findByText('審批模式')).toBeTruthy();
+    cleanup();
+    setup(['monitor', 'auto'], []);
+    expect(await screen.findByText('自動派工')).toBeTruthy();
+  });
+
+  it('全部核准：待審核 2 筆以上才出現', async () => {
+    const { calls } = setup(['monitor', 'op.approve'], [
+      task({ id: 'a', code: 'T-A', status: 'pending_approval' }),
+      task({ id: 'b', code: 'T-B', status: 'pending_approval' }),
+    ]);
+    fireEvent.click(await screen.findByRole('button', { name: '全部核准' }));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/approve')).map((c) => c.url).sort()).toEqual(['/api/v1/tasks/a/approve', '/api/v1/tasks/b/approve']));
+  });
+
+  it('P1 無可用機器人：紅字提示；被插隊中斷的任務：說明 P1 完成後續做', async () => {
+    setup(['monitor'], [
+      task({ id: 'p', code: 'T-P1', priority: 'P1', status: 'queued', progress: { noRobotAt: Date.now() } }),
+      task({ id: 'v', code: 'T-V', status: 'paused', robotId: 'r1', robotCode: 'B2-001', progress: { pausedBy: 'preempt' } }),
+    ]);
+    const p1 = (await screen.findByText('無可用機器人，已通知控制室')) as HTMLElement;
+    expect(p1.className).toContain('crit');
+    expect(screen.getByText('被 P1 插隊中斷，P1 完成後續做')).toBeTruthy();
   });
 });

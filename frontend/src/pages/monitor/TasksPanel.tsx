@@ -3,7 +3,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import { PermGate } from '../../components/PermGate';
 import { t, type MessageKey } from '../../i18n';
-import { ACTIVE_STATUSES, type Task, useTasks } from '../../stores/tasks';
+import { ACTIVE_STATUSES, type DispatchMode, type Task, useTasks } from '../../stores/tasks';
 import { useToast } from '../../stores/toast';
 
 const PRIO: Record<Task['priority'], number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
@@ -33,8 +33,23 @@ export function TasksPanel(props: { floorName(id: string): string; onFocusRobot(
     if (initial.data) load(initial.data.items);
   }, [initial.data, load]);
 
+  const mode = useQuery({ queryKey: ['dispatch', 'mode'], queryFn: () => api<DispatchMode>('/dispatch/mode'), refetchInterval: 60_000 });
   const [rejecting, setRejecting] = useState<Task | null>(null);
   const tasks = Object.values(active);
+  const pending = tasks.filter((x) => x.status === 'pending_approval').sort(byPrio);
+
+  async function approveAll() {
+    let n = 0;
+    for (const task of pending) {
+      try {
+        await api(`/tasks/${task.id}/approve`, { method: 'POST' });
+        n++;
+      } catch {
+        /* 已被別人處理：略過 */
+      }
+    }
+    useToast.getState().show(t('monitor.tasks.approvedAll', { n }), 'ok');
+  }
 
   async function approve(task: Task) {
     try {
@@ -47,7 +62,14 @@ export function TasksPanel(props: { floorName(id: string): string; onFocusRobot(
 
   return (
     <section className="panel tasks" aria-label={t('monitor.tasks')}>
-      <div className="panel-head">{t('monitor.tasks')}</div>
+      <div className="panel-head">
+        {t('monitor.tasks')}
+        {mode.data && (
+          <span className={`badge${mode.data.approval ? '' : ' auto'}`}>
+            {t(mode.data.approval ? 'monitor.tasks.mode.approval' : 'monitor.tasks.mode.auto')}
+          </span>
+        )}
+      </div>
       <div className="scroll">
         {GROUPS.map((g) => {
           const list = tasks.filter((x) => (g.statuses as readonly string[]).includes(x.status)).sort(byPrio);
@@ -56,6 +78,13 @@ export function TasksPanel(props: { floorName(id: string): string; onFocusRobot(
               <div className="group-title">
                 <span className={`ico ${g.ico}`}>{g.glyph}</span>
                 {t(g.label)} <span className="n">({list.length})</span>
+                {g.key === 'review' && list.length > 1 && (
+                  <PermGate perms={['op.approve']}>
+                    <button type="button" className="mini yes push" onClick={() => void approveAll()}>
+                      {t('monitor.tasks.approveAll')}
+                    </button>
+                  </PermGate>
+                )}
               </div>
               {list.length === 0 ? (
                 <div className="empty">{t('monitor.tasks.empty')}</div>
@@ -85,13 +114,18 @@ export function TasksPanel(props: { floorName(id: string): string; onFocusRobot(
 
 function TaskCard(props: { task: Task; floorName: string; selected: boolean; onClick?: () => void; onApprove(): void; onReject(): void }) {
   const { task } = props;
+  const noRobot = task.status === 'queued' && task.priority === 'P1' && !!task.progress.noRobotAt;
   const sub =
     task.status === 'paused'
-      ? t('monitor.tasks.paused', { reason: task.progress.pausedBy ? t(`task.pause.${task.progress.pausedBy}` as MessageKey) : '' })
+      ? task.progress.pausedBy === 'preempt'
+        ? t('monitor.tasks.preemptedBy')
+        : t('monitor.tasks.paused', { reason: task.progress.pausedBy ? t(`task.pause.${task.progress.pausedBy}` as MessageKey) : '' })
       : task.status === 'queued'
-        ? task.pinnedRobot && task.robotCode
-          ? t('monitor.tasks.pinned', { robot: task.robotCode })
-          : t('monitor.tasks.noRobot')
+        ? noRobot
+          ? t('monitor.tasks.p1NoRobot')
+          : task.pinnedRobot && task.robotCode
+            ? t('monitor.tasks.pinned', { robot: task.robotCode })
+            : t('monitor.tasks.noRobot')
         : task.robotCode
           ? `${task.robotCode} · ${t(`task.status.${task.status}` as MessageKey)}`
           : t(`task.status.${task.status}` as MessageKey);
@@ -114,7 +148,7 @@ function TaskCard(props: { task: Task; floorName: string; selected: boolean; onC
         </span>
         <span className={`prio ${task.priority}`}>{task.priority}</span>
       </div>
-      <div className="task-sub">{sub}</div>
+      <div className={`task-sub${noRobot ? ' crit' : ''}`}>{sub}</div>
       {task.status === 'pending_approval' && (
         <PermGate perms={['op.approve']}>
           <div className="task-acts">
@@ -131,7 +165,7 @@ function TaskCard(props: { task: Task; floorName: string; selected: boolean; onC
   );
 }
 
-function RejectDialog({ task, onClose }: { task: Task; onClose(): void }) {
+export function RejectDialog({ task, onClose }: { task: Task; onClose(): void }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {

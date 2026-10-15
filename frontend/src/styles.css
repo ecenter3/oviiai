@@ -264,3 +264,34 @@ input, select { padding: 7px 10px; border-radius: 5px; border: 1px solid var(--l
 .rcard .row b.man { color: var(--review); } .rcard .row b.off { color: var(--fg-3); }
 .rc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .rc-note { font-size: 11px; color: var(--review); margin-top: 6px; }
+.panel-head .badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: rgba(167,139,250,.15); color: var(--review); border: 1px solid rgba(167,139,250,.35); }
+.panel-head .badge.auto { background: rgba(34,197,94,.12); color: var(--ok); border-color: rgba(34,197,94,.35); }
+.group-title .push { margin-left: auto; }
+.task-sub.crit { color: #fca5a5; font-weight: 700; }
+
+/* ===== 派工管理（審批） ===== */
+.dispatch-page { display: flex; flex-direction: column; gap: 14px; }
+.dgrid2 { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2.4fr); gap: 14px; align-items: start; }
+.dcard { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; overflow-x: auto; }
+.dcard h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.dcard h3 .push { margin-left: auto; }
+.hint { margin-top: 10px; font-size: 12px; color: var(--fg-3); }
+.approval { padding: 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); }
+.approval strong { display: block; font-size: 14px; margin-bottom: 6px; }
+.approval.on strong { color: var(--review); } .approval.off strong { color: var(--ok); }
+.approval p { font-size: 12px; color: var(--fg-2); }
+.approval .until { margin-top: 8px; font-family: var(--font-data); color: var(--fg); }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tbl th, .tbl td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tbl th { color: var(--fg-3); font-weight: 500; }
+.tbl tr.clickable { cursor: pointer; } .tbl tr.clickable:hover td { background: var(--card); }
+.tbl td.link { color: var(--accent-2); cursor: pointer; }
+.tbl .acts-cell { display: flex; gap: 6px; }
+.tstatus { padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--card); color: var(--fg-2); }
+.tstatus.pending_approval { color: var(--review); } .tstatus.queued { color: var(--warn); }
+.tstatus.assigned, .tstatus.running { color: var(--accent-2); } .tstatus.paused { color: #fcd34d; }
+.tstatus.done { color: #86efac; } .tstatus.failed, .tstatus.rejected { color: #fca5a5; } .tstatus.cancelled { color: var(--fg-3); }
+.timeline { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 6px; border-left: 2px solid var(--line); padding-left: 12px; }
+.timeline li { display: flex; gap: 10px; font-size: 12px; }
+.timeline time { color: var(--fg-3); }
+@media (max-width: 1100px) { .dgrid2 { grid-template-columns: minmax(0, 1fr); } }
