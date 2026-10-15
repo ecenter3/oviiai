@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 
 export interface HealthReport {
   status: 'ok' | 'degraded';
@@ -9,6 +10,7 @@ export interface HealthReport {
 @Controller('health')
 export class HealthController {
   // 之後逐項接上：db、redis、mqtt、s3、mediamtx、各轉接器心跳
+  @Public()
   @Get()
   check(): HealthReport {
     return {

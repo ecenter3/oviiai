@@ -10,7 +10,7 @@ export function App() {
   const health = useQuery({
     queryKey: ['health'],
     queryFn: async (): Promise<Health> => {
-      const r = await fetch('/api/health');
+      const r = await fetch('/api/v1/health');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     },
