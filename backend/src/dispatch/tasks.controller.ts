@@ -13,7 +13,7 @@ import { TasksService } from './tasks.service';
 
 const Target = z.union([
   z.object({ poiId: z.string().uuid() }).strict(),
-  z.object({ pathId: z.string().uuid() }).strict(),
+  z.object({ pathId: z.string().uuid(), loops: z.number().int().min(1).max(100).optional() }).strict(),
   z.object({ x: z.number().finite(), y: z.number().finite(), yaw: z.number().finite().optional() }).strict(),
 ]);
 

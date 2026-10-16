@@ -50,9 +50,14 @@ cd ~/oviiai && cp .env.example .env
 make up                 # PostgreSQL、Redis、EMQX、S3
 cd adapters && python3.11 -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && cd ..
 make test-adapters
-make mock               # 模擬 6 台機器人
+make mock               # 模擬機器人（預設 6 台）
 ```
 管理介面：EMQX http://localhost:18083 ／ S3 檔案瀏覽 http://localhost:8888
+
+`.env` 要設 `DATA_ENC_KEY`（攝影機、機器人連線密碼加密，`openssl rand -base64 48`）與 `ADAPTER_KEY_MOCK`（`openssl rand -hex 24`）。
+有 `ADAPTER_KEY_MOCK` 時，模擬器每 10 秒向後端 `GET /api/v1/adapter-config/mock` 取機器人清單：在「機器人管理」新增 adapter 為 `mock` 的機器人，模擬器就會跟著出現；停用則移除。後端沒開時改用 `adapters/mock/robots.yaml`。
+
+**已知的開發環境問題**：Windows 上的 Chrome 經過 Vite 開發伺服器的代理（`localhost:5173/api`）收超過約 50 KB 的回應會卡住收不完（例：平面圖），直接連後端 `localhost:3000` 或正式環境的 Nginx 不會。開發時看不到平面圖屬這個問題，不影響正式環境。
 
 ## 4. 連真機器人
 | 品牌 | 筆電要做的事 |

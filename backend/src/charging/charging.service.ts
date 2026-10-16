@@ -45,6 +45,13 @@ const LEAVING_TIMEOUT_MS = 60_000;
 /** 啟動後等遙測進來再對齊 Redis 與 DB 的樁佔用（離線判定 robot.offlineSec 預設 10 秒） */
 const RECONCILE_DELAY_MS = 15_000;
 const RELEASE = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
+const MARK_FAILED = `local v = redis.call('hget', KEYS[1], ARGV[1])
+if not v then return 0 end
+local a = cjson.decode(v)
+if a.cmdId ~= ARGV[2] then return 0 end
+a.failed = true
+redis.call('hset', KEYS[1], ARGV[1], cjson.encode(a))
+return 1`;
 
 interface Assignment {
   robotId: string;
@@ -139,7 +146,8 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
         ),
       TICK_MS,
     );
-    this.reconcileTimer = setTimeout(
+    // 測試可關掉啟動時的自動對齊（CHARGE_RECONCILE_ON_START=false），改為直接呼叫 reconcile()
+    if (process.env.CHARGE_RECONCILE_ON_START !== 'false') this.reconcileTimer = setTimeout(
       () => void this.reconcile().catch((e) => this.log.error(e instanceof Error ? e.stack : String(e))),
       RECONCILE_DELAY_MS,
     );
@@ -339,9 +347,9 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
           this.log.log(`${robot.code} 在 ${charger.code} 開始充電（${live.battery.toFixed(0)}%）`);
         } else if (a.failed || !live.online || now - a.since > HEADING_TIMEOUT_MS || ['idle', 'estop'].includes(live.state) && now - a.since > 20_000) {
           // 指令失敗、離線、逾時、或被使用者停下：釋放樁，仍需充電的話下一輪重新觸發；連續失敗 3 次就停止重送並告警
-          const fails = await this.redis.hincrby(FAILS, robot.id, 1);
-          this.log.warn(`${robot.code} 前往 ${charger.code} 未完成（連續第 ${fails} 次），釋放充電樁`);
           await this.release(robot.id, a);
+          const fails = await this.redis.hincrby(FAILS, robot.id, 1);
+          this.log.warn(`${robot.code} 前往 ${charger.code} 未完成（連續第 ${fails} 次），已釋放充電樁`);
           if (fails >= MAX_CHARGE_FAILS && !this.alerted.has(`fail:${robot.id}`)) {
             this.alerted.add(`fail:${robot.id}`);
             this.log.warn(`${robot.code} 連續 ${fails} 次回充失敗，停止自動重送`);
@@ -455,12 +463,12 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
     return this.db.selectFrom('pois').select(['x', 'y']).where('floor_id', '=', floor).where('kind', '=', 'parking').execute();
   }
 
+  /**
+   * 指令結果在鎖外收到：用 Lua 原子更新，只改「還存在且 cmdId 相符」的分配。
+   * 先讀再寫的話，排程剛好在中間釋放分配，寫回去就把已釋放的分配復活、樁一直顯示佔用。
+   */
   private async markFailed(robotId: string, cmdId: string) {
-    const a = await this.assignment(robotId);
-    if (a && a.cmdId === cmdId) {
-      a.failed = true;
-      await this.redis.hset(ASSIGN, robotId, JSON.stringify(a));
-    }
+    await this.redis.eval(MARK_FAILED, 1, ASSIGN, robotId, cmdId);
   }
 
   private async release(robotId: string, a: Assignment, endPct: number | null = null) {

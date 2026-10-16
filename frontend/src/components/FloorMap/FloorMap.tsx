@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useAuthedUrl } from '../../api/useAuthedUrl';
 import { t } from '../../i18n';
 import {
   estimateSize,
@@ -120,6 +121,7 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
     pickMode,
     viewKey,
   } = props;
+  const planHref = useAuthedUrl(planUrl);
 
   const box = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<Size>(FALLBACK);
@@ -233,8 +235,8 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
       <svg width={view.w} height={view.h} role="img" aria-label={t('page.monitor')}>
         <g transform={meters}>
           <rect className="fm-floor" x={0} y={0} width={floor.w} height={floor.h} />
-          {planUrl ? (
-            <image href={planUrl} x={0} y={0} width={floor.w} height={floor.h} preserveAspectRatio="none" />
+          {planHref ? (
+            <image href={planHref} x={0} y={0} width={floor.w} height={floor.h} preserveAspectRatio="none" />
           ) : (
             <g className="fm-grid">
               {range(0, floor.w, step).map((x) => (

@@ -21,7 +21,10 @@ import { FleetService } from '../src/fleet/fleet.service';
 import { RobotRegistry } from '../src/fleet/robot-registry';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
+import { RetentionService } from '../src/maintenance/retention.service';
 import { SettingsService } from '../src/settings/settings.service';
+import { StorageService } from '../src/storage/storage.service';
+import { FakeStorage } from './fake-storage';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -51,6 +54,7 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
   const roles: string[] = [];
   const users: string[] = [];
   const sockets: Socket[] = [];
+  const storage = new FakeStorage();
   const bot = { x: 10, y: 5, battery: 80, state: 'idle', rssi: -50 as number | null, faults: [] as unknown[], failCmd: false };
 
   const http = () => request(app.getHttpServer());
@@ -113,7 +117,7 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
     ).id;
     await db.updateTable('settings').set({ value: 'false' }).where('key', '=', 'dispatch.approval').execute();
 
-    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const mod = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(StorageService).useValue(storage).compile();
     app = mod.createNestApplication<NestExpressApplication>();
     configureApp(app);
     await app.listen(0);
@@ -379,6 +383,53 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
       expect(rows[0].message).toContain('E_JOINT');
     });
 
+    it('同一台 60 秒內兩個不同故障碼：各自一筆（PR #9 審查第 1 點）；同一碼重複才合併', async () => {
+      await setBot({ faults: [{ code: 'E_MOTOR_HOT', level: 1, msg: '馬達過熱' }] });
+      await sources().check();
+      await setBot({ faults: [{ code: 'E_MOTOR_FAIL', level: 1, msg: '馬達失效' }] });
+      await sources().check();
+      await adapter.publishAsync(`rms/robot/${CODE}/event`, JSON.stringify({ ts: Date.now(), type: 'fault', data: { code: 'E_MOTOR_FAIL', level: 1, msg: '馬達失效' } }), { qos: 1 });
+      await until(async () => (await ofType('fault')).some((a) => a.repeat_count === 2));
+      const rows = await ofType('fault');
+      const by = Object.fromEntries(rows.map((a) => [a.source_key, a]));
+      expect(by[`robot:${robotId}:fault:E_MOTOR_HOT`]).toMatchObject({ repeat_count: 1, message: `${CODE} 故障 E_MOTOR_HOT：馬達過熱` });
+      expect(by[`robot:${robotId}:fault:E_MOTOR_FAIL`]).toMatchObject({ repeat_count: 2, message: `${CODE} 故障 E_MOTOR_FAIL：馬達失效` });
+      expect(rows).toHaveLength(2);
+    });
+
+    it('轉接器斷線：底下多台合併成一筆「轉接器斷線」告警，不逐台發離線（PR #9 審查第 3 點）', async () => {
+      const code2 = `A${tag}-2`;
+      const id2 = (
+        await db.insertInto('robots').values({ code: code2, brand: 'anbot', model: 'ANBOT-Y', floor_id: FLOOR, adapter: `e2e-${tag}` }).returning('id').executeTakeFirstOrThrow()
+      ).id;
+      try {
+        await app.get(RobotRegistry).load();
+        await adapter.publishAsync(
+          `rms/robot/${code2}/telemetry`,
+          JSON.stringify({ ts: Date.now(), pose: { x: 5, y: 5, yaw: 0, floor: FLOOR }, battery: { pct: 80, charging: false }, state: 'idle', faults: [] }),
+        );
+        await until(() => app.get(FleetService).get(code2)?.online);
+        await adapter.publishAsync(`rms/adapter/e2e-${tag}/status`, JSON.stringify({ name: `e2e-${tag}`, alive: false }), { qos: 1 });
+        await until(() => !app.get(FleetService).get(CODE)?.online && !app.get(FleetService).get(code2)?.online);
+        // 收集 1 秒後合併送出
+        const rows = (await until(async () => {
+          const r = await ofType('adapter_down');
+          return r.length ? r : null;
+        }))!;
+        expect(await ofType('offline')).toHaveLength(0);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ source_key: `adapter:e2e-${tag}`, floor_id: FLOOR, level: 2, status: 'open' });
+        expect(rows[0].message).toBe(`轉接器 e2e-${tag} 斷線，2 台機器人離線：${[CODE, code2].sort().join('、')}`);
+      } finally {
+        await db.deleteFrom('alarms').where('robot_id', '=', id2).execute();
+        await db.deleteFrom('telemetry').where('robot_id', '=', id2).execute();
+        await db.deleteFrom('robot_state_log').where('robot_id', '=', id2).execute();
+        await db.deleteFrom('robots').where('id', '=', id2).execute();
+        await app.get<Redis>(REDIS).del(`robot:${code2}`);
+        await app.get(RobotRegistry).load();
+      }
+    });
+
     it('機器人事件 estop_pressed、fault（MQTT event 主題）', async () => {
       await adapter.publishAsync(`rms/robot/${CODE}/event`, JSON.stringify({ ts: Date.now(), type: 'estop_pressed' }), { qos: 1 });
       await adapter.publishAsync(`rms/robot/${CODE}/event`, JSON.stringify({ ts: Date.now(), type: 'fault', data: { code: 'E_LIDAR', level: 1, msg: '光達異常' } }), { qos: 1 });
@@ -415,6 +466,33 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
       c.alerts$.next({ type: 'charge_failed', robot, battery: 18, fails: 3, at: Date.now() });
       await until(async () => (await ofType('charge_queue')).length && (await ofType('manual_charge')).length && (await ofType('charge_failed')).length);
       expect((await ofType('charge_failed'))[0].message).toContain('連續 3 次');
+    });
+  });
+
+  describe('保存期限（PR #9 審查第 4 點）', () => {
+    it('超過 1 年的已結束告警（含歷程）與操作日誌：先匯出 CSV 再刪除；未結束的、未滿 1 年的保留', async () => {
+      const old = new Date(Date.now() - 400 * 86_400_000);
+      const closed = (await alarms().raise({ type: 'estop', robotId, message: `${tag} 舊的已結案`, at: old }))!.alarm;
+      await alarms().transition(closed.id, 'false_alarm', '測試', { id: users[0], name: '告警測試1' });
+      const open = (await alarms().raise({ type: 'offline', robotId, message: `${tag} 舊的未處理`, at: old }))!.alarm;
+      const recent = (await alarms().raise({ type: 'cmd_failed', robotId, message: `${tag} 新的` }))!.alarm;
+      await db.insertInto('op_logs').values({ user_id: users[0], username: `${tag}-old`, action: 'test.old', target: null, detail: JSON.stringify({}), ip: null }).execute();
+      await db.updateTable('op_logs').set({ at: old } as never).where('username', '=', `${tag}-old`).execute();
+
+      const r = await app.get(RetentionService).purge();
+      expect(r.alarms).toBeGreaterThanOrEqual(1);
+      expect(r.oplogs).toBeGreaterThanOrEqual(1);
+      const ids = (await db.selectFrom('alarms').select('id').where('id', 'in', [closed.id, open.id, recent.id]).execute()).map((a) => a.id);
+      expect(ids.sort()).toEqual([open.id, recent.id].sort());
+      expect(await db.selectFrom('alarm_events').select('id').where('alarm_id', '=', closed.id).execute()).toEqual([]);
+      expect(await db.selectFrom('op_logs').select('id').where('username', '=', `${tag}-old`).execute()).toEqual([]);
+
+      const files = r.files.map((k) => storage.objects.get(k)!.body.toString('utf8'));
+      expect(files[0]).toContain(`${tag} 舊的已結案`);
+      expect(files[0]).toContain('告警測試1 open→false_alarm 測試');
+      expect(files[0]).not.toContain(`${tag} 舊的未處理`);
+      expect(files[1]).toContain('test.old');
+      expect(r.files[0]).toMatch(/^retention\/alarms-\d{8}-\d+\.csv$/);
     });
   });
 

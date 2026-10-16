@@ -40,10 +40,13 @@ export function initialStatus(rule: { need_handle: boolean }, confidence: number
   return rule.need_handle ? 'open' : 'info';
 }
 
-/** 去重的來源鍵：機器人＞攝影機＞呼叫端給的 key（例如任務）＞樓層 */
+/**
+ * 去重的來源鍵：呼叫端明確給的 key（例：robot:{id}:fault:{code}、task:{id}、adapter:{name}）＞機器人＞攝影機＞樓層。
+ * 明確的 key 優先，同一台的不同故障碼才不會被合併成一筆（PR #9 審查第 1 點）。
+ */
 export function sourceKey(a: { robotId?: string | null; cameraId?: string | null; source?: string | null; floorId?: string | null }): string {
+  if (a.source) return a.source;
   if (a.robotId) return `robot:${a.robotId}`;
   if (a.cameraId) return `camera:${a.cameraId}`;
-  if (a.source) return a.source;
   return `floor:${a.floorId ?? '-'}`;
 }

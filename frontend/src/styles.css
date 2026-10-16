@@ -470,3 +470,37 @@ fieldset.contents { display: contents; border: 0; }
   .pg2 > .filt { order: -1; }
   .ad-body { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 提示音尚未啟用（PR #9 審查第 2 點）：頁首常駐，點一下啟用 */
+/* 浮在頁首中間（蓋住統計列）、不佔版面：第一次點擊畫面時它消失，不能讓下面的內容跳動（否則那一下點擊會落空） */
+.sound-banner { position: fixed; top: 13px; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 7px 16px; border-radius: 18px; border: 1px solid rgba(245,158,11,.6); background: rgba(40,28,6,.94); box-shadow: 0 4px 18px rgba(0,0,0,.45); color: #fcd34d; font-size: 13px; font-weight: 700; cursor: pointer; }
+.sound-banner:hover { background: rgba(70,48,8,.96); }
+
+/* ===== 機器人管理、地圖管理（T-25，原型 .pg2＋右側表單） ===== */
+.tabs2 { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.tabs2 button { padding: 10px; border: 0; background: transparent; color: var(--accent-2); font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tabs2 button.on { background: #1d6ff2; color: #fff; }
+.tabs2 button:disabled { opacity: .5; cursor: default; }
+.seg2 { display: inline-flex; gap: 4px; }
+.seg2 button { padding: 5px 14px; border-radius: 4px; border: 0; background: transparent; color: var(--fg-2); font-size: 13px; font-weight: 700; cursor: pointer; }
+.seg2 button.on { background: #1d6ff2; color: #fff; }
+.radios { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.radios label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.radios input, .check input { width: auto; accent-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); cursor: pointer; }
+.badge2 { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 11px; border: 1px solid var(--line); color: var(--fg-2); white-space: nowrap; }
+.badge2.ok { color: #86efac; border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.1); }
+.badge2.unreg { color: #fdba74; border-color: rgba(249,115,22,.5); background: rgba(249,115,22,.1); }
+.ferr { color: #fca5a5; font-size: 12px; font-weight: 400; }
+.fhint { color: var(--fg-3); font-size: 11px; font-weight: 400; }
+.obtn.red { border-color: rgba(239,68,68,.55); color: #fca5a5; }
+.go2.warn { border-color: rgba(245,158,11,.6); background: rgba(245,158,11,.08); color: #fbbf24; }
+.go2.danger { border-color: rgba(239,68,68,.6); background: rgba(239,68,68,.08); color: #fca5a5; }
+.go2:disabled { opacity: .5; cursor: default; }
+.dtbl tr.off td { opacity: .55; }
+.filt-sub { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sub-h { margin: 18px 0 2px; font-size: 13px; color: var(--accent-2); }
+.maps-stage { position: relative; height: 460px; border-radius: 6px; border: 1px solid var(--line); overflow: hidden; }
+.maps-stage.picking { border-color: var(--warn); }
+.pick-tip { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); padding: 4px 12px; border-radius: 12px; background: rgba(245,158,11,.9); color: #1a1205; font-size: 12px; font-weight: 700; pointer-events: none; }
+.fl > label { display: flex; flex-direction: column; gap: 6px; }

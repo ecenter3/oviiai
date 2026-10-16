@@ -77,6 +77,8 @@ export interface RobotsTable {
   params: ColumnType<unknown, string | undefined, string>;
   enabled: ColumnType<boolean, boolean | undefined, boolean>;
   created_at: ColumnType<Date, never, never>;
+  /** pgp_sym_encrypt 的連線密碼等；寫入用 sql 運算式 */
+  conn_secret: ColumnType<Buffer | null, unknown, unknown>;
 }
 
 export interface TelemetryTable {
@@ -107,7 +109,7 @@ export interface CamerasTable {
   floor_id: string;
   x: number;
   y: number;
-  rtsp_url: Buffer;
+  rtsp_url: ColumnType<Buffer, unknown, unknown>;
   stream_key: string;
   enabled: ColumnType<boolean, boolean | undefined, boolean>;
 }
@@ -172,6 +174,42 @@ export interface PathsTable {
   name: string;
   points: ColumnType<{ x: number; y: number; yaw?: number }[], string, string>;
   length_m: string;
+}
+
+export interface RobotMapCalibTable {
+  robot_id: string;
+  robot_map_id: string;
+  matrix: number[];
+  points: ColumnType<unknown, string, string>;
+  rmse_m: string;
+  updated_at: ColumnType<Date, never, Date>;
+}
+
+export interface ZonesTable {
+  id: Generated<string>;
+  floor_id: string;
+  name: string;
+  kind: 'forbidden' | 'slow' | 'silent';
+  polygon: ColumnType<[number, number][], string, string>;
+}
+
+export interface PatrolSchedulesTable {
+  id: Generated<string>;
+  name: string;
+  path_id: string;
+  robot_id: string | null;
+  /** time：pg 回傳 'HH:MM:SS' */
+  start_time: string;
+  repeat: 'daily' | 'weekdays' | 'weekends' | 'once';
+  /** date：'YYYY-MM-DD'（database.module 設定不轉成 Date） */
+  once_date: ColumnType<string | null, string | null | undefined, string | null>;
+  loops: ColumnType<number, number | undefined, number>;
+  priority: ColumnType<string, string | undefined, string>;
+  enabled: ColumnType<boolean, boolean | undefined, boolean>;
+  created_by: string | null;
+  created_at: ColumnType<Date, never, never>;
+  last_run_at: Timestamp | null;
+  last_task_id: string | null;
 }
 
 export interface AlarmRulesTable {
@@ -251,6 +289,9 @@ export interface DB {
   tasks: TasksTable;
   task_events: TaskEventsTable;
   pois: PoisTable;
+  zones: ZonesTable;
+  robot_map_calib: RobotMapCalibTable;
+  patrol_schedules: PatrolSchedulesTable;
   paths: PathsTable;
   alarms: AlarmsTable;
   alarm_rules: AlarmRulesTable;

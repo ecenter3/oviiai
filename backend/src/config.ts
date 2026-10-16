@@ -71,3 +71,25 @@ export function authConfig(): AuthConfig {
 export function databaseUrl(): string {
   return required('DATABASE_URL');
 }
+
+/**
+ * 資料加密金鑰（攝影機帳密、機器人連線密碼以 pgcrypto pgp_sym_encrypt 加密）。
+ * 正式環境必須設定且至少 32 字元；開發環境沒設時用固定的開發金鑰並警告一次。
+ */
+let warnedEncKey = false;
+export function dataEncKey(nodeEnv = process.env.NODE_ENV): string {
+  const k = process.env.DATA_ENC_KEY ?? '';
+  if (k.length >= 32) return k;
+  if (nodeEnv === 'production') throw new Error('DATA_ENC_KEY 未設定或少於 32 字元，請用 openssl rand -base64 48 產生');
+  if (!warnedEncKey) {
+    warnedEncKey = true;
+    console.warn('[警告] DATA_ENC_KEY 未設定或太短，使用開發用金鑰（非正式環境，仍繼續啟動）');
+  }
+  return k || 'dev-only-data-encryption-key-not-for-production';
+}
+
+/** 轉接器金鑰：ADAPTER_KEY_<名稱大寫>（例 ADAPTER_KEY_MOCK、ADAPTER_KEY_ANBOT）；沒設定就不接受該轉接器取設定 */
+export function adapterKey(name: string): string | null {
+  const k = process.env[`ADAPTER_KEY_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`];
+  return k && k.length >= 16 ? k : null;
+}

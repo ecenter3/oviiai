@@ -7,6 +7,7 @@ const BY_STATUS: Record<number, ErrorCode> = {
   401: 'UNAUTHENTICATED',
   403: 'FORBIDDEN',
   404: 'NOT_FOUND',
+  413: 'VALIDATION_FAILED',
 };
 
 /** 所有錯誤統一成 `{ error: { code, message, details } }` */
@@ -23,7 +24,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (err instanceof HttpException) {
       const status = err.getStatus();
       const body: ErrorBody = {
-        error: { code: BY_STATUS[status] ?? 'INTERNAL', message: err.message, details: {} },
+        error: { code: BY_STATUS[status] ?? 'INTERNAL', message: status === 413 ? '檔案太大' : err.message, details: {} },
       };
       res.status(status).json(body);
       return;

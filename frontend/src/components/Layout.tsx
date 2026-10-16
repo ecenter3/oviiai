@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { t, type MessageKey } from '../i18n';
 import { connectRealtime, disconnectRealtime } from '../realtime/socket';
-import { unlockAudio } from '../realtime/sound';
+import { enableAudio, playAlarm, unlockAudio, useAudioReady } from '../realtime/sound';
 import { buildMenu } from '../routes';
 import { useAuth } from '../stores/auth';
 import { type Conn, useRealtime } from '../stores/realtime';
@@ -111,6 +111,7 @@ export function Layout() {
           <Clock />
         </div>
       </header>
+      <SoundBanner perms={perms} />
       <div className="shell">
         <nav className={`side${sideOpen ? '' : ' collapsed'}`} aria-label={t('app.name')}>
           {menu.map((g) => (
@@ -149,6 +150,28 @@ export function Layout() {
       <AlarmPopup />
       <Toaster />
     </div>
+  );
+}
+
+/**
+ * 提示音尚未啟用時的常駐橫幅（PR #9 審查第 2 點）：警衛室電腦重開或重新整理後，沒人點過畫面就不會響。
+ * 只對收得到告警的帳號顯示；點一下啟用並試響一聲。
+ */
+function SoundBanner({ perms }: { perms: readonly string[] }) {
+  const ready = useAudioReady();
+  if (ready || !['sysalarm', 'bizalarm', 'monitor'].some((p) => perms.includes(p))) return null;
+  return (
+    <button
+      type="button"
+      className="sound-banner"
+      title={t('alarm.sound.bannerTip')}
+      onClick={() => {
+        enableAudio();
+        playAlarm(3);
+      }}
+    >
+      <span aria-hidden="true">🔇</span> {t('alarm.sound.banner')}
+    </button>
   );
 }
 

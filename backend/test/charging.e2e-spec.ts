@@ -425,21 +425,27 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       expect(types(B(1))).toEqual(['charge', 'navigate']);
     });
 
-    it('連續 3 次回充失敗：停止自動重送並發 charge_failed 告警；使用者按回充可重試', async () => {
+    it('連續 3 次回充失敗：停止自動重送並發 charge_failed 告警；使用者按回充可重試', { timeout: 20_000 }, async () => {
       bots[B(1)].failCharge = true;
       await setBot(B(1), { battery: 20 });
       const redis = app.get<Redis>(REDIS);
-      for (let i = 1; i <= 3; i++) {
-        await tick(); // 釋放上一次失敗的、再送一次
-        await until(() => types(B(1)).filter((t) => t === 'charge').length === i);
-        await until(async () => JSON.parse((await redis.hget('charge:assign', bots[B(1)].id)) ?? '{}').failed === true);
+      const fails = async () => Number((await redis.hget('charge:fails', bots[B(1)].id)) ?? 0);
+      // 背景每 2 秒也會跑一輪：不數「第幾次」，等失敗次數累積到 3
+      for (let i = 0; i < 20 && (await fails()) < 3; i++) {
+        await tick();
+        await new Promise((r) => setTimeout(r, 150));
       }
-      await tick(); // 第 3 次失敗 → 釋放並告警，不再送
-      await tick();
-      await tick();
-      expect(types(B(1)).filter((t) => t === 'charge')).toHaveLength(3);
+      expect(await fails()).toBe(3);
+      const sent = types(B(1)).filter((t) => t === 'charge').length;
+      expect(sent).toBe(3);
+      for (let i = 0; i < 3; i++) {
+        await tick();
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      expect(types(B(1)).filter((t) => t === 'charge')).toHaveLength(3); // 不再自動重送
       expect(alerts.filter((a) => a.type === 'charge_failed').map((a) => a.robot.code)).toEqual([B(1)]);
-      expect((await floorView()).chargers.every((c) => !c.occupiedBy)).toBe(true);
+      const v = await floorView();
+      expect(v.chargers.filter((c) => c.occupiedBy).map((c) => c.occupiedBy), JSON.stringify({ v, cmds: bots[B(1)].cmds, others: [2, 3, 4].map((n) => [B(n), bots[B(n)].battery, types(B(n))]) })).toEqual([]);
 
       // 人員確認後手動按回充：重新計算
       bots[B(1)].failCharge = false;
