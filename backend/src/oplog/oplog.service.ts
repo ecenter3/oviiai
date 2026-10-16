@@ -5,6 +5,7 @@ import { CSV_BOM, csvRow, formatTaipei } from '../common/csv';
 import type { Paged } from '../common/pagination';
 import { KYSELY, type Database } from '../db/database.module';
 import type { DB } from '../db/types';
+import { redact, redactUrlCredentials } from './summarize';
 
 export interface OpLogEntry {
   userId: string | null;
@@ -48,8 +49,9 @@ export class OpLogService {
         user_id: e.userId,
         username: e.username,
         action: e.action,
-        target: e.target ?? null,
-        detail: e.detail ? JSON.stringify(e.detail) : null,
+        target: e.target ? redactUrlCredentials(e.target) : null,
+        // 不論從哪裡寫入，網址帳密與密碼類欄位都不進日誌（PR #10 審查第 1 點）
+        detail: e.detail ? JSON.stringify(redact(e.detail)) : null,
         ip: e.ip ?? null,
       })
       .execute();

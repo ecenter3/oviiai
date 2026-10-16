@@ -229,6 +229,15 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
       const list = (await as(viewer, http().get(`/api/v1/cameras?floor=${FLOOR}`)).expect(200)).body;
       expect(list[0]).toMatchObject({ code, hasRtsp: true });
       expect(JSON.stringify(list)).not.toContain('cam-secret');
+
+      // 改 RTSP、以及驗證失敗（400）的請求都會寫操作日誌：日誌裡不能有帳密（PR #10 審查第 1 點）
+      await as(admin, http().patch(`/api/v1/cameras/${c.id}`)).send({ rtspUrl: 'rtsp://admin:new-secret@10.0.0.21/stream1', name: '改 rtsp://ops:in-name@x/y' }).expect(200);
+      await as(admin, http().post('/api/v1/cameras')).send({ code: `${code}X`, name: 'x', floorId: FLOOR, x: 999, y: 1, rtspUrl: 'rtsp://admin:bad-secret@10.0.0.9/s' }).expect(400);
+      const logs = await db.selectFrom('op_logs').select(['action', 'detail', 'target']).where('user_id', '=', users[0]).where('action', 'like', 'camera.%').execute();
+      expect(logs.map((l) => l.action).sort()).toEqual(['camera.create', 'camera.create', 'camera.create', 'camera.update']);
+      const dump = JSON.stringify(logs);
+      expect(dump).not.toMatch(/cam-secret|new-secret|bad-secret|in-name|admin:|ops:/);
+      expect(dump).toContain('rtsp://***:***@x/y');
       await as(admin, http().delete(`/api/v1/cameras/${c.id}`)).expect(204);
     });
   });

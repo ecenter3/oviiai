@@ -8,7 +8,7 @@ import type { Priority } from '../dispatch/task-state';
 import { type TaskView, TasksService } from '../dispatch/tasks.service';
 import { FleetService } from '../fleet/fleet.service';
 import { RobotRegistry } from '../fleet/robot-registry';
-import { bullConnection, bullPrefix } from '../jobs/bull';
+import { bullConnection, bullPrefix, closeBull } from '../jobs/bull';
 import { SettingsService } from '../settings/settings.service';
 import { cronOf, LATE_LIMIT_MS, onceAt, PINNED_WAIT_MS, type Repeat, unavailableReason } from './nav-plan';
 
@@ -74,8 +74,7 @@ export class PatrolService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     clearInterval(this.timer);
-    await this.worker?.close();
-    await this.queue?.close();
+    await closeBull(this.worker, this.queue);
   }
 
   /** 啟動時：資料庫的排程 ↔ BullMQ 對齊（多的移除、少的補上） */

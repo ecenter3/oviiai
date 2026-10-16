@@ -57,7 +57,9 @@ make mock               # 模擬機器人（預設 6 台）
 `.env` 要設 `DATA_ENC_KEY`（攝影機、機器人連線密碼加密，`openssl rand -base64 48`）與 `ADAPTER_KEY_MOCK`（`openssl rand -hex 24`）。
 有 `ADAPTER_KEY_MOCK` 時，模擬器每 10 秒向後端 `GET /api/v1/adapter-config/mock` 取機器人清單：在「機器人管理」新增 adapter 為 `mock` 的機器人，模擬器就會跟著出現；停用則移除。後端沒開時改用 `adapters/mock/robots.yaml`。
 
-**已知的開發環境問題**：Windows 上的 Chrome 經過 Vite 開發伺服器的代理（`localhost:5173/api`）收超過約 50 KB 的回應會卡住收不完（例：平面圖），直接連後端 `localhost:3000` 或正式環境的 Nginx 不會。開發時看不到平面圖屬這個問題，不影響正式環境。
+**已知的開發環境問題**：Windows 上的 Chrome 開 `http://localhost:5173`，收超過約 50 KB 的回應（例：平面圖）會卡住收不完；直接連後端 `localhost:3000` 或正式環境的 Nginx 不會。疑似 WSL2 mirrored 網路的 MTU 問題，可試：
+- 改開 `http://127.0.0.1:5173`（2026-10-16 在開發筆電試過，**沒有改善**）
+- `.wslconfig` 加上 `[experimental]` → `hostAddressLoopback=true`，再 `wsl --shutdown` 重開（尚未試；需要重開 WSL）
 
 ## 4. 連真機器人
 | 品牌 | 筆電要做的事 |

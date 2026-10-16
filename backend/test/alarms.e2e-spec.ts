@@ -470,7 +470,7 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
   });
 
   describe('保存期限（PR #9 審查第 4 點）', () => {
-    it('超過 1 年的已結束告警（含歷程）與操作日誌：先匯出 CSV 再刪除；未結束的、未滿 1 年的保留', async () => {
+    it('超過 1 年的已結束告警（含歷程）、已結束任務（含歷程）與操作日誌：先匯出 CSV 再刪除；未結束的、未滿 1 年的保留', async () => {
       const old = new Date(Date.now() - 400 * 86_400_000);
       const closed = (await alarms().raise({ type: 'estop', robotId, message: `${tag} 舊的已結案`, at: old }))!.alarm;
       await alarms().transition(closed.id, 'false_alarm', '測試', { id: users[0], name: '告警測試1' });
@@ -479,6 +479,22 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
       await db.insertInto('op_logs').values({ user_id: users[0], username: `${tag}-old`, action: 'test.old', target: null, detail: JSON.stringify({}), ip: null }).execute();
       await db.updateTable('op_logs').set({ at: old } as never).where('username', '=', `${tag}-old`).execute();
 
+      // 任務：舊的已完成（含歷程）、舊的執行中、新的已完成；新的那筆記著被舊任務插隊
+      const mk = async (code: string, status: string, preemptedBy: string | null = null) =>
+        (
+          await db
+            .insertInto('tasks')
+            .values({ code, kind: 'inspect', priority: 'P3', source: 'manual', floor_id: FLOOR, target: JSON.stringify({ x: 1, y: 1 }), status, preempted_by: preemptedBy } as never)
+            .returning('id')
+            .executeTakeFirstOrThrow()
+        ).id as string;
+      const oldDone = await mk(`T-${tag}-OLD`, 'done');
+      await db.updateTable('tasks').set({ created_at: old, ended_at: old } as never).where('id', '=', oldDone).execute();
+      await db.insertInto('task_events').values({ task_id: oldDone, type: 'created', data: JSON.stringify({ by: 'x' }) }).execute();
+      const oldRunning = await mk(`T-${tag}-RUN`, 'running');
+      await db.updateTable('tasks').set({ created_at: old } as never).where('id', '=', oldRunning).execute();
+      const recentTask = await mk(`T-${tag}-NEW`, 'done', oldDone);
+
       const r = await app.get(RetentionService).purge();
       expect(r.alarms).toBeGreaterThanOrEqual(1);
       expect(r.oplogs).toBeGreaterThanOrEqual(1);
@@ -486,12 +502,21 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
       expect(ids.sort()).toEqual([open.id, recent.id].sort());
       expect(await db.selectFrom('alarm_events').select('id').where('alarm_id', '=', closed.id).execute()).toEqual([]);
       expect(await db.selectFrom('op_logs').select('id').where('username', '=', `${tag}-old`).execute()).toEqual([]);
+      expect(r.tasks).toBeGreaterThanOrEqual(1);
+      const left = await db.selectFrom('tasks').select(['id', 'preempted_by']).where('id', 'in', [oldDone, oldRunning, recentTask]).execute();
+      expect(left.map((t) => t.id).sort()).toEqual([oldRunning, recentTask].sort());
+      expect(left.find((t) => t.id === recentTask)!.preempted_by).toBeNull();
+      expect(await db.selectFrom('task_events').select('id').where('task_id', '=', oldDone).execute()).toEqual([]);
+      const taskCsv = r.files.filter((k) => k.includes('/tasks-')).map((k) => storage.objects.get(k)!.body.toString('utf8')).join('');
+      expect(taskCsv).toContain(`T-${tag}-OLD`);
+      expect(taskCsv).toContain('created {""by"":""x""}');
+      expect(taskCsv).not.toContain(`T-${tag}-RUN`);
 
       const files = r.files.map((k) => storage.objects.get(k)!.body.toString('utf8'));
       expect(files[0]).toContain(`${tag} 舊的已結案`);
       expect(files[0]).toContain('告警測試1 open→false_alarm 測試');
       expect(files[0]).not.toContain(`${tag} 舊的未處理`);
-      expect(files[1]).toContain('test.old');
+      expect(files.at(-1)).toContain('test.old');
       expect(r.files[0]).toMatch(/^retention\/alarms-\d{8}-\d+\.csv$/);
     });
   });

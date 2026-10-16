@@ -13,7 +13,9 @@ services:
       TZ: UTC
     ports: ["5432:5432"]
     volumes: [db-data:/var/lib/postgresql/data]
-    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=100"]
+    # log_parameter_max_length*=0：查詢參數不寫進 PostgreSQL 日誌（pgp_sym_encrypt 的明文與金鑰是參數；PR #10 審查第 2 點）
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=100",
+              "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0"]
     mem_limit: 1536m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
