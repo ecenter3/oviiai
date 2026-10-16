@@ -25,7 +25,8 @@ export const OCCUPYING: readonly TaskStatus[] = ['assigned', 'running'];
 
 const T: Record<TaskStatus, readonly TaskStatus[]> = {
   pending_approval: ['queued', 'rejected', 'cancelled'],
-  queued: ['assigned', 'cancelled'],
+  // queued → failed：巡邏排程指定的機器人 30 分鐘內無法執行（後端邏輯 §4）
+  queued: ['assigned', 'cancelled', 'failed'],
   // assigned → queued：指令送不出去時退回佇列；assigned → failed：機器人拒絕或逾時
   assigned: ['running', 'paused', 'failed', 'queued', 'cancelled'],
   running: ['done', 'failed', 'paused', 'cancelled'],

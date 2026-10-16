@@ -318,7 +318,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     const tg = task.target as Record<string, unknown>;
     if (typeof tg.pathId === 'string') {
       const p = await this.tasks.path(tg.pathId);
-      return ['patrol', { points: p?.points ?? [], loops: 1 }];
+      return ['patrol', { points: p?.points ?? [], loops: typeof tg.loops === 'number' ? tg.loops : 1 }];
     }
     const pt = await this.tasks.targetPoint(task);
     return ['navigate', { x: pt!.x, y: pt!.y, ...(pt!.yaw !== undefined && { yaw: pt!.yaw }) }];

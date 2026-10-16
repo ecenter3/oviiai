@@ -12,7 +12,8 @@ import { REDIS } from '../redis/redis.module';
 import { SettingsService } from '../settings/settings.service';
 import { initialStatus, type Priority, sourcesOf, type TaskStatus, taipeiDate } from './task-state';
 
-export type TaskTarget = { poiId: string } | { pathId: string } | { x: number; y: number; yaw?: number };
+/** 路徑任務可指定圈數（巡邏排程的 loops） */
+export type TaskTarget = { poiId: string } | { pathId: string; loops?: number } | { x: number; y: number; yaw?: number };
 
 export interface TaskView {
   id: string;
@@ -53,6 +54,8 @@ export interface TaskProgress {
   reservedUntil?: number | null;
   /** P1 沒有可用機器人時記錄時間（告警只發一次） */
   noRobotAt?: number | null;
+  /** 巡邏排程指定的機器人不能執行，已發延後告警（後端邏輯 §4） */
+  delayedAt?: number | null;
 }
 
 export type PauseReason = 'offline' | 'estop' | 'teleop' | 'charge' | 'preempt';

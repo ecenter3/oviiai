@@ -36,9 +36,10 @@ describe('初始狀態', () => {
 });
 
 describe('去重來源鍵', () => {
-  it('機器人＞攝影機＞自訂＞樓層', () => {
-    expect(sourceKey({ robotId: 'r', cameraId: 'c', source: 'task:1' })).toBe('robot:r');
-    expect(sourceKey({ cameraId: 'c', source: 'task:1' })).toBe('camera:c');
+  it('明確給的＞機器人＞攝影機＞樓層', () => {
+    expect(sourceKey({ robotId: 'r', cameraId: 'c', source: 'robot:r:fault:E1' })).toBe('robot:r:fault:E1');
+    expect(sourceKey({ robotId: 'r', cameraId: 'c' })).toBe('robot:r');
+    expect(sourceKey({ cameraId: 'c' })).toBe('camera:c');
     expect(sourceKey({ source: 'task:1', floorId: '1f' })).toBe('task:1');
     expect(sourceKey({ floorId: '1f' })).toBe('floor:1f');
   });

@@ -125,6 +125,7 @@ describe('任務狀態機', () => {
     expect(canTransition('pending_approval', 'rejected')).toBe(true);
     expect(canTransition('done', 'queued')).toBe(false);
     expect(canTransition('queued', 'running')).toBe(false);
+    expect(canTransition('queued', 'failed')).toBe(true); // 巡邏排程指定的機器人 30 分鐘內無法執行
     expect(canTransition('rejected', 'queued')).toBe(false);
     expect(sourcesOf('cancelled').sort()).toEqual(['assigned', 'paused', 'pending_approval', 'queued', 'running']);
   });

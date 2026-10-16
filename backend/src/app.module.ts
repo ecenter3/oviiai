@@ -16,15 +16,20 @@ import { RolesModule } from './roles/roles.module';
 import { SettingsModule } from './settings/settings.module';
 import { MapsModule } from './maps/maps.module';
 import { UsersModule } from './users/users.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
+import { NavModule } from './nav/nav.module';
+import { SiteModule } from './site/site.module';
+import { StorageModule } from './storage/storage.module';
 
 // 模組依工程開發手冊「後端」章節逐步加入：
-// cameras, media, face, site, reports, integrations
+// media, face, reports, integrations
 @Module({
   imports: [
     DatabaseModule,
     RedisModule,
     MqttModule,
     SettingsModule,
+    StorageModule,
     OpLogModule,
     AuthModule,
     UsersModule,
@@ -36,6 +41,9 @@ import { UsersModule } from './users/users.module';
     DispatchModule,
     ChargingModule,
     AlarmsModule,
+    NavModule,
+    SiteModule,
+    MaintenanceModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

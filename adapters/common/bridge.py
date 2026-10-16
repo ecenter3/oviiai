@@ -47,6 +47,8 @@ class Bridge:
         # 非移動指令（pause、ptz、snapshot…）的 task：asyncio 對 task 只保留弱參考，
         # 這裡保留強參考直到完成，避免執行途中被回收（PR #7 審查第 1 點）
         self._side: set[asyncio.Task] = set()
+        # 每台機器人的遙測、事件迴圈；可在執行中新增、移除機器人（模擬器依後端設定增減）
+        self._loops: dict[str, list[asyncio.Task]] = {}
 
     # ---------------------------------------------------------------- run
     async def run(self) -> None:
@@ -67,14 +69,51 @@ class Bridge:
                 await client.subscribe(topics.cmd(code), qos=1)
                 await client.subscribe(topics.teleop(code), qos=0)
             log.info("connected to mqtt %s:%s with %d robots", self.host, self.port, len(self.drivers))
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(self._heartbeat_loop())
-                tg.create_task(self._teleop_watchdog())
+            try:
                 for d in self.drivers.values():
-                    tg.create_task(self._robot_loop(d))
-                    tg.create_task(self._event_loop(d))
-                async for msg in client.messages:
-                    await self.on_message(str(msg.topic), msg.payload)
+                    self._start_loops(d)
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(self._heartbeat_loop())
+                    tg.create_task(self._teleop_watchdog())
+                    async for msg in client.messages:
+                        await self.on_message(str(msg.topic), msg.payload)
+            finally:
+                for code in list(self._loops):
+                    self._stop_loops(code)
+                self._client = None
+
+    # ---------------------------------------------------------------- robots
+    async def add_driver(self, d: RobotDriver) -> None:
+        """執行中新增一台（已連上 MQTT 就立即訂閱並開始送遙測）"""
+        if d.code in self.drivers:
+            return
+        self.drivers[d.code] = d
+        if self._client is not None:
+            await self._client.subscribe(topics.cmd(d.code), qos=1)
+            await self._client.subscribe(topics.teleop(d.code), qos=0)
+            self._start_loops(d)
+        log.info("robot %s added", d.code)
+
+    async def remove_driver(self, code: str) -> None:
+        """執行中移除一台：停止迴圈、回報離線、斷開機器人"""
+        d = self.drivers.pop(code, None)
+        if d is None:
+            return
+        self._stop_loops(code)
+        self._teleop_deadline.pop(code, None)
+        if self._client is not None:
+            await self._client.unsubscribe(topics.cmd(code))
+            await self._client.unsubscribe(topics.teleop(code))
+            await self.publish(topics.online(code), _json(RobotOnline(online=False, ts=now_ms())), qos=1, retain=True)
+        await d.close()
+        log.info("robot %s removed", code)
+
+    def _start_loops(self, d: RobotDriver) -> None:
+        self._loops[d.code] = [asyncio.create_task(self._robot_loop(d)), asyncio.create_task(self._event_loop(d))]
+
+    def _stop_loops(self, code: str) -> None:
+        for t in self._loops.pop(code, []):
+            t.cancel()
 
     async def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
         if self._client is not None:

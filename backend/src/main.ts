@@ -3,11 +3,12 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
-import { authConfig, loadEnv } from './config';
+import { authConfig, dataEncKey, loadEnv } from './config';
 
 async function bootstrap() {
   loadEnv();
   authConfig(); // 設定有誤（如正式環境 JWT_SECRET 不安全）在建立應用程式前就中止
+  dataEncKey(); // 正式環境沒有資料加密金鑰也中止
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   configureApp(app);
   app.enableShutdownHooks();

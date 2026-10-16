@@ -7,7 +7,7 @@ import { DispatchService, type DispatchAlert } from '../dispatch/dispatch.servic
 import { TasksService } from '../dispatch/tasks.service';
 import { FleetService } from '../fleet/fleet.service';
 import { RobotRegistry } from '../fleet/robot-registry';
-import type { FleetEvent, LiveState, OfflineReason } from '../fleet/types';
+import type { FleetEvent, LiveState, OfflineReason, RobotInfo } from '../fleet/types';
 import { MqttService } from '../mqtt/mqtt.service';
 import { SettingsService } from '../settings/settings.service';
 import { type AlarmInput, AlarmsService } from './alarms.service';
@@ -18,6 +18,11 @@ export const WEAK_RSSI = -75;
 export const WEAK_SIGNAL_MS = 30_000;
 /** 電量回到 returnAt + 這個值以上才重新啟用低電量告警，避免在門檻附近來回跳動 */
 const BATTERY_HYSTERESIS = 5;
+
+/** 轉接器斷線時逐台離線事件的收集時間 */
+const ADAPTER_BATCH_MS = 1_000;
+/** 故障告警的去重來源要含故障碼：同一台不同故障各自一筆（PR #9 審查第 1 點） */
+export const faultSource = (robotId: string, code: string) => `robot:${robotId}:fault:${code}`;
 
 const OFFLINE_REASON: Record<OfflineReason, string> = {
   telemetry_timeout: '遙測逾時',
@@ -38,7 +43,8 @@ interface Watch {
  *
  * | type | 來源 |
  * | battery_low | 遙測電量 ≤ charge.returnAt（進入時一次，回升 5% 以上再啟用） |
- * | offline | fleet offline 事件（超過 robot.offlineSec 無遙測、轉接器回報或斷線） |
+ * | offline | fleet offline 事件（超過 robot.offlineSec 無遙測、轉接器回報該台離線） |
+ * | adapter_down | 轉接器斷線：同一轉接器底下的機器人合併成一筆 |
  * | estop | 狀態進入 estop；機器人事件 estop_pressed |
  * | fault | 遙測 faults 出現新的 1 級故障碼；機器人事件 fault（level 1） |
  * | weak_signal | rssi < -75 dBm 持續 30 秒 |
@@ -53,6 +59,8 @@ export class AlarmSourcesService implements OnModuleInit, OnModuleDestroy {
   private subs: Subscription[] = [];
   private timer?: NodeJS.Timeout;
   private readonly watch = new Map<string, Watch>();
+  private checking: Promise<void> = Promise.resolve();
+  private readonly adapterDown = new Map<string, { robots: RobotInfo[]; at: number }>();
 
   constructor(
     private readonly alarms: AlarmsService,
@@ -91,8 +99,17 @@ export class AlarmSourcesService implements OnModuleInit, OnModuleDestroy {
     clearInterval(this.timer);
   }
 
-  /** 檢查遙測數值類規則（低電量、訊號偏弱、故障碼）。背景每 2 秒；測試可直接呼叫 */
-  async check(now = Date.now()): Promise<void> {
+  /**
+   * 檢查遙測數值類規則（低電量、訊號偏弱、故障碼）。背景每 2 秒；測試可直接呼叫。
+   * 依序執行：兩次檢查同時跑會在邊緣狀態更新前各發一次同一筆告警。
+   */
+  check(now = Date.now()): Promise<void> {
+    const run = this.checking.then(() => this.checkOnce(now));
+    this.checking = run.catch(() => undefined);
+    return run;
+  }
+
+  private async checkOnce(now: number): Promise<void> {
     const returnAt = await this.settings.getNumber('charge.returnAt', 25);
     for (const live of this.fleet.all()) {
       if (!live.online) continue;
@@ -134,14 +151,19 @@ export class AlarmSourcesService implements OnModuleInit, OnModuleDestroy {
 
   private async checkFaults(live: LiveState, w: Watch) {
     const current = new Set(live.faults.filter((f) => f.level === 1).map((f) => f.code));
+    const seen = w.faults;
+    w.faults = current; // 先記下，再發告警
     for (const f of live.faults) {
-      if (f.level !== 1 || w.faults.has(f.code)) continue;
-      await this.raise({ type: 'fault', robotId: live.robotId, message: `${live.code} 故障 ${f.code}：${f.msg}`, ext: { fault: f } });
+      if (f.level !== 1 || seen.has(f.code)) continue;
+      await this.raise({ type: 'fault', robotId: live.robotId, source: faultSource(live.robotId, f.code), message: `${live.code} 故障 ${f.code}：${f.msg}`, ext: { fault: f } });
     }
-    w.faults = current;
   }
 
   private async onFleet(e: FleetEvent) {
+    if (e.type === 'offline' && e.reason === 'adapter_down') {
+      this.collectAdapterDown(e.robot, e.at);
+      return;
+    }
     if (e.type === 'offline') {
       await this.raise({
         type: 'offline',
@@ -167,6 +189,7 @@ export class AlarmSourcesService implements OnModuleInit, OnModuleDestroy {
       await this.raise({
         type: 'fault',
         robotId: robot.id,
+        source: faultSource(robot.id, String(d.code ?? '')),
         message: `${robot.code} 故障 ${String(d.code ?? '')}：${String(d.msg ?? '')}`.trim(),
         ext: { fault: d },
       });
@@ -221,6 +244,38 @@ export class AlarmSourcesService implements OnModuleInit, OnModuleDestroy {
             }
           : { type: a.type, robotId: a.robot.id, message: `${a.robot.code} 連續 ${a.fails} 次回充失敗，已停止自動重送（電量 ${pct}）` };
     await this.raise({ ...input, at: new Date(a.at) });
+  }
+
+  /**
+   * 轉接器斷線（PR #9 審查第 3 點）：同一個轉接器底下的機器人會在同一刻逐台離線，
+   * 收集 1 秒後合併成一筆「轉接器斷線」告警（來源 adapter:{name}），不逐台發 offline。
+   */
+  private collectAdapterDown(robot: RobotInfo, at: number) {
+    this.watch.delete(robot.id);
+    const b = this.adapterDown.get(robot.adapter);
+    if (b) {
+      b.robots.push(robot);
+      return;
+    }
+    const batch = { robots: [robot], at };
+    this.adapterDown.set(robot.adapter, batch);
+    setTimeout(() => {
+      this.adapterDown.delete(robot.adapter);
+      void this.flushAdapterDown(robot.adapter, batch).catch((e) => this.log.error(e instanceof Error ? e.stack : String(e)));
+    }, ADAPTER_BATCH_MS);
+  }
+
+  private async flushAdapterDown(name: string, b: { robots: RobotInfo[]; at: number }) {
+    const floors = [...new Set(b.robots.map((r) => r.floor))];
+    const codes = b.robots.map((r) => r.code).sort();
+    await this.raise({
+      type: 'adapter_down',
+      source: `adapter:${name}`,
+      floorId: floors.length === 1 ? floors[0] : null,
+      message: `轉接器 ${name} 斷線，${codes.length} 台機器人離線：${codes.join('、')}`,
+      ext: { adapter: name, robots: codes },
+      at: new Date(b.at),
+    });
   }
 
   private watchOf(robotId: string): Watch {
