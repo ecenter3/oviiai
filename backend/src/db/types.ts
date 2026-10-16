@@ -163,6 +163,7 @@ export interface PoisTable {
   x: number;
   y: number;
   yaw: number | null;
+  kind: ColumnType<'poi' | 'parking', 'poi' | 'parking' | undefined, 'poi' | 'parking'>;
 }
 
 export interface PathsTable {
@@ -173,10 +174,53 @@ export interface PathsTable {
   length_m: string;
 }
 
+export interface AlarmRulesTable {
+  type: string;
+  category: 'system' | 'business';
+  name: string;
+  level: number;
+  popup: boolean;
+  sound: boolean;
+  need_handle: boolean;
+  sms_user_ids: ColumnType<string[], string[] | undefined, string[]>;
+  dedup_sec: ColumnType<number, number | undefined, number>;
+}
+
 export interface AlarmsTable {
   id: Generated<string>;
+  code: string;
+  type: string;
+  category: string;
+  level: number;
+  floor_id: string | null;
+  robot_id: string | null;
+  camera_id: string | null;
+  x: number | null;
+  y: number | null;
+  message: string;
+  /** numeric(5,2)：pg 回傳字串 */
+  confidence: ColumnType<string | null, number | null | undefined, number | null>;
   status: string;
+  handler_id: string | null;
+  snapshot_key: string | null;
+  clip_key: string | null;
+  ext: ColumnType<unknown, string | null | undefined, string | null>;
+  repeat_count: ColumnType<number, number | undefined, number>;
   occurred_at: Timestamp;
+  closed_at: Timestamp | null;
+  source_key: string | null;
+  handled_at: Timestamp | null;
+}
+
+export interface AlarmEventsTable {
+  id: Generated<string>;
+  alarm_id: string;
+  at: ColumnType<Date, Date | string | undefined, never>;
+  user_id: string | null;
+  user_name: string | null;
+  from_status: string | null;
+  to_status: string | null;
+  note: string | null;
 }
 
 export interface ChargeSessionsTable {
@@ -209,6 +253,8 @@ export interface DB {
   pois: PoisTable;
   paths: PathsTable;
   alarms: AlarmsTable;
+  alarm_rules: AlarmRulesTable;
+  alarm_events: AlarmEventsTable;
   floors: FloorsTable;
   robots: RobotsTable;
   telemetry: TelemetryTable;

@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { type ChargerInfo, manualDone, needsCharge, pickCharger, queueOrder, type RobotChargeView, shouldYield, waitPoint } from './charge-plan';
+import {
+  type ChargerInfo,
+  manualDone,
+  needsCharge,
+  onCharger,
+  pickCharger,
+  queueOrder,
+  type RobotChargeView,
+  shouldYield,
+  sideExit,
+  waitPoint,
+  yieldPoint,
+} from './charge-plan';
 
 const S = { returnAt: 25, resumeAt: 90 };
 const robot = (over: Partial<RobotChargeView> = {}): RobotChargeView => ({
@@ -10,6 +22,7 @@ const robot = (over: Partial<RobotChargeView> = {}): RobotChargeView => ({
   online: true,
   state: 'idle',
   battery: 20,
+  charging: false,
   x: 10,
   y: 5,
   teleopLocked: false,
@@ -86,5 +99,42 @@ describe('排隊與讓位', () => {
     expect(manualDone(15, 36, S)).toBe(true);
     expect(manualDone(15, 30, S)).toBe(false);
     expect(manualDone(80, 90, S)).toBe(true);
+  });
+});
+
+describe('在樁上判斷（PR #8 審查第 1 點）', () => {
+  it('state=charging 或 battery.charging=true 任一成立', () => {
+    expect(onCharger({ state: 'charging', charging: false })).toBe(true);
+    expect(onCharger({ state: 'idle', charging: true })).toBe(true);
+    expect(onCharger({ state: 'idle', charging: false })).toBe(false);
+  });
+  it('上樁後回報 idle＋charging=true 不會再觸發回充', () => {
+    expect(needsCharge(robot({ state: 'idle', charging: true, battery: 15 }), S)).toBe(false);
+  });
+});
+
+describe('讓位去處（PR #8 審查第 2 點）', () => {
+  const floor = { w: 42, h: 28 };
+  const c = { x: 2, y: 2 };
+  it('有待命點：開到最近的待命點', () => {
+    expect(yieldPoint(c, floor, [{ x: 30, y: 20 }, { x: 8, y: 3 }])).toEqual({ x: 8, y: 3 });
+  });
+  it('沒有待命點：從側向退出，與排隊線垂直、不在排隊點上', () => {
+    const q = waitPoint(c, floor, 0);
+    const p = yieldPoint(c, floor, []);
+    const dot = (q.x - c.x) * (p.x - c.x) + (q.y - c.y) * (p.y - c.y);
+    expect(Math.abs(dot)).toBeLessThan(0.05);
+    expect(Math.hypot(p.x - c.x, p.y - c.y)).toBeCloseTo(2, 1);
+    expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeGreaterThan(2);
+  });
+  it('一側超出樓層就走另一側', () => {
+    // 樁在下緣中間，排隊線往上（+y），側向是 ±x；兩側都在樓層內，取第一側
+    const p = sideExit({ x: 21, y: 0 }, floor);
+    expect(p.y).toBeCloseTo(0, 1);
+    expect(Math.abs(p.x - 21)).toBeCloseTo(2, 1);
+    // 樁在左下角：(-dy, dx) 那側會變成負座標，改走另一側
+    const corner = sideExit({ x: 0.5, y: 0.5 }, floor);
+    expect(corner.x).toBeGreaterThanOrEqual(0);
+    expect(corner.y).toBeGreaterThanOrEqual(0);
   });
 });
