@@ -128,7 +128,7 @@ async def test_pause_holds_navigation_and_resume_continues(setup):
     await b.on_message("rms/robot/B2-001/cmd", cmd("nav", "navigate", x=3, y=0))
     await asyncio.sleep(0.3)
     await b.on_message("rms/robot/B2-001/cmd", cmd("p", "pause"))
-    await asyncio.wait_for(b._side["B2-001"], 1)
+    await asyncio.wait_for(asyncio.gather(*b._side), 1)
     x_paused = d.x
     assert d.state == "paused" and 0 < x_paused < 3
     await asyncio.sleep(0.4)
@@ -149,7 +149,7 @@ async def test_teleop_during_pause_then_resume_continues_from_new_position(setup
     await b.on_message("rms/robot/B2-001/cmd", cmd("nav", "navigate", x=3, y=0))
     await asyncio.sleep(0.2)
     await b.on_message("rms/robot/B2-001/cmd", cmd("p", "pause"))
-    await asyncio.wait_for(b._side["B2-001"], 1)
+    await asyncio.wait_for(asyncio.gather(*b._side), 1)
     t = json.dumps({"lockId": "L", "vx": 0, "vy": 1.0, "wz": 0, "ts": now_ms()})
     await b.on_message("rms/robot/B2-001/teleop", t)
     await asyncio.sleep(0.3)
@@ -169,10 +169,22 @@ async def test_new_navigate_after_pause_supersedes_old(setup):
     await b.on_message("rms/robot/B2-001/cmd", cmd("old", "navigate", x=3, y=0))
     await asyncio.sleep(0.2)
     await b.on_message("rms/robot/B2-001/cmd", cmd("p", "pause"))
-    await asyncio.wait_for(b._side["B2-001"], 1)
+    await asyncio.wait_for(asyncio.gather(*b._side), 1)
     await b.on_message("rms/robot/B2-001/cmd", cmd("new", "navigate", x=0, y=2))
     await asyncio.wait_for(b._running["B2-001"], 3)
     await asyncio.sleep(0.05)
     assert ("old", "failed", "CANCELLED") in b.acks()
     assert ("new", "done", None) in b.acks()
     assert (d.x, d.y) == (pytest.approx(0, abs=0.06), pytest.approx(2, abs=0.06))
+
+
+async def test_side_commands_keep_strong_reference_until_done(setup):
+    """PR #7 審查第 1 點：同一台連續兩個非移動指令，前一個不會因參考被覆蓋而遺失"""
+    b, d = setup
+    await b.on_message("rms/robot/B2-001/cmd", cmd("s1", "snapshot"))
+    await b.on_message("rms/robot/B2-001/cmd", cmd("s2", "snapshot"))
+    assert len(b._side) == 2
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    await asyncio.sleep(0)
+    assert b._side == set()
+    assert ("s1", "done", None) in b.acks() and ("s2", "done", None) in b.acks()
