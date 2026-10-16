@@ -48,7 +48,7 @@ export class StatsService {
       total: all.length,
       online: online.length,
       working: online.filter((r) => WORKING.has(r.state)).length,
-      charging: online.filter((r) => r.state === 'charging').length,
+      charging: online.filter((r) => r.state === 'charging' || r.charging).length,
       fault: online.filter((r) => FAULT.has(r.state)).length,
       todayTasks: Number(tasks.n),
       openAlarms: Number(alarms.n),
