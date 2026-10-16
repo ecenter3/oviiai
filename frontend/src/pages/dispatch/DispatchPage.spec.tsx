@@ -30,7 +30,7 @@ const task = (over: Partial<Task>): Task => ({
 
 function setup(perms: string[], opts: { mode?: Partial<DispatchMode>; pending?: Task[]; recent?: Task[] } = {}) {
   const calls: { url: string; method: string; body?: unknown }[] = [];
-  const mode: DispatchMode = { approval: true, approvalSetting: true, approvalUntil: '2027-01-31', p1Preempt: true, ...opts.mode };
+  const mode: DispatchMode = { approval: true, approvalSetting: true, approvalUntil: '2027-01-31', p1Preempt: true, pending: 0, ...opts.mode };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -38,6 +38,7 @@ function setup(perms: string[], opts: { mode?: Partial<DispatchMode>; pending?: 
       const json = (b: unknown) => new Response(JSON.stringify(b));
       if (url.endsWith('/floors')) return json([{ id: '1f', name: '1F 辦公室' }]);
       if (url.endsWith('/dispatch/mode')) return json(mode);
+      if (url.endsWith('/pois') || url.endsWith('/task-templates') || url.endsWith('/robots')) return json([]);
       if (url.includes('status=pending_approval')) return json({ items: opts.pending ?? [] });
       if (url.includes('/tasks?size=30')) return json({ items: opts.recent ?? [] });
       if (/\/tasks\/[^/]+$/.test(url)) {

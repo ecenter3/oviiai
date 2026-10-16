@@ -7,6 +7,7 @@ import { CommandsService } from '../commands/commands.service';
 import { TeleopLock } from '../commands/teleop-lock.service';
 import { KYSELY, type Database } from '../db/database.module';
 import { FleetService } from '../fleet/fleet.service';
+import { OpLogService } from '../oplog/oplog.service';
 import { RobotRegistry } from '../fleet/robot-registry';
 import type { FleetEvent, RobotInfo } from '../fleet/types';
 import { REDIS } from '../redis/redis.module';
@@ -18,6 +19,9 @@ import { type PauseReason, TasksService, type TaskView } from './tasks.service';
 /** 每 10 秒保底掃一次（後端邏輯 §2：觸發時機） */
 const SWEEP_MS = 10_000;
 const LOCK_TTL_MS = 10_000;
+/** 系統自動執行的操作，操作日誌的操作者 */
+export const SYSTEM_USER = '系統';
+
 /** 續做時保留給原本那台的時間 */
 export const RESERVE_MS = 30_000;
 const RELEASE = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
@@ -33,6 +37,8 @@ export interface DispatchMode {
   approvalSetting: boolean;
   approvalUntil: string | null;
   p1Preempt: boolean;
+  /** 待審批筆數（關閉審批前提示：會立即派出幾筆） */
+  pending: number;
 }
 
 /**
@@ -76,6 +82,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: SettingsService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(KYSELY) private readonly db: Database,
+    private readonly oplog: OpLogService,
   ) {}
 
   onModuleInit() {
@@ -159,6 +166,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     if (!queued.length) return 0;
 
     const minAccept = await this.settings.getNumber('charge.minAccept', 40);
+    const resumeAt = await this.settings.getNumber('charge.resumeAt', 90);
     const occupied = await this.tasks.occupiedRobots();
     const robots: Candidate[] = [];
     for (const info of this.registry.all().filter((r) => r.floor === floor)) {
@@ -204,7 +212,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
 
     let sent = 0;
     const assigned = new Set<string>();
-    for (const [qt, cand] of planRound(plan, robots, { minAccept })) {
+    for (const [qt, cand] of planRound(plan, robots, { minAccept, resumeAt })) {
       const task = queued.find((t) => t.id === qt.id)!;
       if (!(await this.assign(task, this.registry.get(cand.code)!))) return sent; // MQTT 斷線：下一輪再試
       sent++;
@@ -220,7 +228,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
       const preempt = (await this.settings.get('dispatch.p1Preempt')) !== false;
       for (const p1 of p1s) {
         const task = queued.find((t) => t.id === p1.id)!;
-        const victim = preempt ? pickPreemptVictim(p1, robots, { minAccept }) : null;
+        const victim = preempt ? pickPreemptVictim(p1, robots, { minAccept, resumeAt }) : null;
         if (victim && (await this.preempt(task, victim))) {
           sent++;
           victim.taskPriority = 'P1';
@@ -366,6 +374,12 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     if (v) this.log.log(`${t.code} 恢復排隊（${reason} 解除）`);
   }
 
+  /** 充電排程註冊：機器人是否還在等充電（排隊、前往、人工充電未完成）；預設不擋 */
+  private chargeBlocked: (robot: RobotInfo) => Promise<boolean> = async () => false;
+  setChargeBlocked(fn: (robot: RobotInfo) => Promise<boolean>) {
+    this.chargeBlocked = fn;
+  }
+
   private async hasPaused(robot: RobotInfo, reason: PauseReason): Promise<boolean> {
     return (await this.tasks.byRobot(robot.id, ['paused'])).some((t) => t.progress.pausedBy === reason);
   }
@@ -379,9 +393,10 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
   /**
    * 保底：檢查每筆暫停的原因是否還成立（PR #6 審查第 1 點）。
    * 遙控鎖到期（瀏覽器關掉）、強制接管後到期、遙控中按急停等，事件不完整也能自己恢復。
-   * 回充（charge）由充電排程（T-19）處理，這裡不動。
+   * 回充（charge）：電量充到 resumeAt 且不在等人工充電 → 續做（T-19）。
    */
   async recoverPaused(): Promise<void> {
+    const resumeAt = await this.settings.getNumber('charge.resumeAt', 90);
     for (const t of await this.tasks.paused()) {
       const robot = t.robotId ? await this.registry.resolveId(t.robotId) : undefined;
       const live = robot ? this.fleet.get(robot.code) : undefined;
@@ -395,6 +410,9 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
           break;
         case 'offline':
           cleared = !!live?.online;
+          break;
+        case 'charge':
+          cleared = !!live?.online && live.battery >= resumeAt && !(robot && (await this.chargeBlocked(robot)));
           break;
         case 'preempt': {
           const p1 = t.preemptedBy ? await this.tasks.get(t.preemptedBy).catch(() => null) : null;
@@ -436,6 +454,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
       approvalSetting,
       approvalUntil,
       p1Preempt: (await this.settings.get('dispatch.p1Preempt')) !== false,
+      pending: (await this.tasks.pendingApproval()).length,
     };
   }
 
@@ -453,6 +472,14 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
         .execute();
       this.settings.invalidate();
       this.log.warn(`審批期已過（${m.approvalUntil}），自動關閉審批`);
+      // 改變全站派工行為：寫操作日誌，事後查得到「審批為什麼關了」（PR #7 審查第 2 點）
+      await this.oplog.write({
+        userId: null,
+        username: SYSTEM_USER,
+        action: 'settings.update',
+        target: 'dispatch.approval',
+        detail: { ok: true, from: true, to: false, reason: `審批期限 ${m.approvalUntil} 已過，自動關閉` },
+      });
     }
     if (m.approval) return 0;
     let n = 0;

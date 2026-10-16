@@ -4,12 +4,21 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { robotTone } from '../../components/FloorMap/geometry';
 import { PermGate } from '../../components/PermGate';
 import { formatTime, t, type MessageKey } from '../../i18n';
+import { ChargeCompleteButton } from '../../components/ChargeCompleteButton';
+import type { ChargeStatus } from '../../stores/charging';
 import type { RobotLive } from '../../stores/realtime';
 
 export type DrawerCommand = 'estop' | 'estop_release' | 'stop' | 'charge';
 
 /** 點機器人看詳情（系統規格書 §4.1：點機器人看詳情、進入遙控、急停、回充） */
-export function RobotDrawer(props: { robot: RobotLive; floorName: string; onClose(): void; onCommand(type: DrawerCommand): void; busy: boolean }) {
+export function RobotDrawer(props: {
+  robot: RobotLive;
+  floorName: string;
+  onClose(): void;
+  onCommand(type: DrawerCommand): void;
+  busy: boolean;
+  charge?: ChargeStatus | null;
+}) {
   const { robot: r, onCommand, busy } = props;
   const [confirmRelease, setConfirmRelease] = useState(false);
   const tone = robotTone(r.state, r.online);
@@ -50,6 +59,12 @@ export function RobotDrawer(props: { robot: RobotLive; floorName: string; onClos
           <dd>{r.speed === null ? '—' : `${r.speed.toFixed(2)} m/s`}</dd>
           <dt>{t('robot.signal')}</dt>
           <dd>{r.rssi === null ? '—' : `${r.rssi} dBm`}</dd>
+          {props.charge && (
+            <>
+              <dt>{t('robots.charge')}</dt>
+              <dd className={props.charge.kind === 'manual' ? 'warn-text' : ''}>{props.charge.text}</dd>
+            </>
+          )}
           <dt>{t('robot.task')}</dt>
           <dd>{r.taskId ?? t('robot.none')}</dd>
           <dt>{t('robot.updated')}</dt>
@@ -67,6 +82,10 @@ export function RobotDrawer(props: { robot: RobotLive; floorName: string; onClos
               ))}
             </ul>
           </div>
+        )}
+
+        {props.charge?.kind === 'manual' && (
+          <ChargeCompleteButton robotId={r.robotId} code={r.code} className="btn primary" />
         )}
 
         <div className="acts">

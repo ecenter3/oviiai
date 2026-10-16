@@ -16,6 +16,7 @@ import { AuthRepository } from '../auth/auth.repository';
 import type { AccessPayload } from '../auth/auth.service';
 import { satisfies } from '../auth/perm.decorator';
 import type { Principal } from '../auth/principal';
+import { ChargingService } from '../charging/charging.service';
 import { CommandBus } from '../commands/command-bus.service';
 import { CommandsService, type TeleopResult } from '../commands/commands.service';
 import { TeleopLock } from '../commands/teleop-lock.service';
@@ -73,6 +74,7 @@ export class RealtimeGateway
     private readonly users: AuthRepository,
     private readonly stats: StatsService,
     private readonly tasks: TasksService,
+    private readonly charging: ChargingService,
   ) {}
 
   afterInit(server: Server) {
@@ -92,6 +94,8 @@ export class RealtimeGateway
       }),
       // 任務更新只推給有 dispatch 或 monitor 權限的連線（不分樓層：監控頁任務面板顯示全部樓層）
       this.tasks.changes$.subscribe((t) => server.to(TASKS_ROOM).emit('task.updated', t)),
+      // 充電樁佔用、排隊、人工充電變化（介面規格 §4 charger.updated；這裡一次送整個樓層）
+      this.charging.updates$.subscribe((v) => server.to(floorRoom(v.floor)).emit('charger.updated', v)),
       this.lock.revoked$.subscribe((m) =>
         server.to(userRoom(m.previous.userId)).emit('teleop.revoked', { robotId: m.robotId, code: m.code, by: m.by, reason: m.reason }),
       ),

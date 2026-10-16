@@ -22,7 +22,7 @@ class MockDriver(RobotDriver):
 
     def __init__(self, code: str, floor: str, x: float = 0.0, y: float = 0.0, battery: float = 80.0,
                  speed: float = 1.0, dock: dict[str, float] | None = None, fail_rate: float = 0.0,
-                 teleop: bool = True, drain_per_m: float = 0.05):
+                 teleop: bool = True, drain_per_m: float = 0.05, charge_rate: float = 0.5):
         super().__init__(code, floor)
         self.x, self.y, self.yaw = x, y, 0.0
         self.battery = battery
@@ -30,6 +30,8 @@ class MockDriver(RobotDriver):
         self.dock = dock or {"x": x, "y": y}
         self.fail_rate = fail_rate
         self.drain_per_m = drain_per_m
+        #: 充電速度（%／秒）；測試排隊情境可調快
+        self.charge_rate = charge_rate
         self.state = "idle"
         self.speed = 0.0
         self._connected = False
@@ -60,7 +62,7 @@ class MockDriver(RobotDriver):
         while True:
             await asyncio.sleep(TICK_S)
             if self.state == "charging":
-                self.battery = min(100.0, self.battery + 0.5 * TICK_S)
+                self.battery = min(100.0, self.battery + self.charge_rate * TICK_S)
             elif self.state == "teleop":
                 vx, vy, wz = self._vel
                 self.yaw += wz * TICK_S
@@ -155,7 +157,10 @@ class MockDriver(RobotDriver):
                     await self._goto(float(pt["x"]), float(pt["y"]), "patrolling")
                     self.emit(RobotEvent(ts=now_ms(), type="waypoint_reached", data={"cmdId": cmd.cmdId, "index": i}))
             elif t == "charge":
-                await self._goto(self.dock["x"], self.dock["y"], "returning")
+                # 後端排程指定充電樁時帶座標；沒帶就回自己設定的充電點
+                gx = float(cmd.args.get("x", self.dock["x"]))
+                gy = float(cmd.args.get("y", self.dock["y"]))
+                await self._goto(gx, gy, "returning")
                 self.state = "charging"
                 self.emit(RobotEvent(ts=now_ms(), type="charge_started"))
                 return None

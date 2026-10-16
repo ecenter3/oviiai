@@ -29,6 +29,8 @@ export interface RobotInfo {
   adapter: string;
   /** 能力清單（ptz、light、talk、follow、lift、env），後端與前端依此判斷，不做品牌判斷 */
   caps: string[];
+  /** 品牌（資料值）：只用來比對充電樁「同品牌」與讀 charge.mode.{brand} 設定，程式不寫死任何品牌 */
+  brand: string;
 }
 
 export type OfflineReason = 'telemetry_timeout' | 'adapter_reported' | 'adapter_down';

@@ -44,8 +44,9 @@ class Bridge:
         self._client: aiomqtt.Client | None = None
         self._teleop_deadline: dict[str, float] = {}
         self._running: dict[str, asyncio.Task] = {}
-        # 非移動指令（pause、ptz…）：只為了測試能等它完成
-        self._side: dict[str, asyncio.Task] = {}
+        # 非移動指令（pause、ptz、snapshot…）的 task：asyncio 對 task 只保留弱參考，
+        # 這裡保留強參考直到完成，避免執行途中被回收（PR #7 審查第 1 點）
+        self._side: set[asyncio.Task] = set()
 
     # ---------------------------------------------------------------- run
     async def run(self) -> None:
@@ -179,7 +180,8 @@ class Bridge:
                 prev.cancel()
             self._running[d.code] = task
         else:
-            self._side[d.code] = task
+            self._side.add(task)
+            task.add_done_callback(self._side.discard)
 
     async def _run_cmd(self, d: RobotDriver, cmd: Command) -> None:
         try:

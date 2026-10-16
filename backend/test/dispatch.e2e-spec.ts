@@ -587,6 +587,17 @@ describe.skipIf(!ready)('派工（e2e）', () => {
       expect((await auth(http().get('/api/v1/dispatch/mode')).expect(200)).body).toMatchObject({ approval: false, approvalSetting: false });
       const row = await db.selectFrom('settings').select('value').where('key', '=', 'dispatch.approval').executeTakeFirstOrThrow();
       expect(row.value).toBe(false);
+      // PR #7 審查第 2 點：自動關閉寫操作日誌，操作者記系統
+      const log = await db
+        .selectFrom('op_logs')
+        .selectAll()
+        .where('action', '=', 'settings.update')
+        .where('target', '=', 'dispatch.approval')
+        .orderBy('at', 'desc')
+        .executeTakeFirstOrThrow();
+      expect(log).toMatchObject({ user_id: null, username: '系統', detail: { ok: true, from: true, to: false } });
+      expect((log.detail as { reason: string }).reason).toContain('2020-01-01');
+      await db.deleteFrom('op_logs').where('id', '=', log.id).execute();
     });
 
     it('手動關閉審批：待審批任務也自動轉入佇列', async () => {

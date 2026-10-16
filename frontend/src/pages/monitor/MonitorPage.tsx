@@ -5,6 +5,8 @@ import { FloorMap, type FloorMapHandle } from '../../components/FloorMap/FloorMa
 import { t, type MessageKey } from '../../i18n';
 import { type CmdResult, useRealtime } from '../../stores/realtime';
 import { useToast } from '../../stores/toast';
+import { chargeStatusOf } from '../../stores/charging';
+import { useChargingData } from '../useChargingData';
 import { type DrawerCommand, RobotDrawer } from './RobotDrawer';
 import { TasksPanel } from './TasksPanel';
 
@@ -68,6 +70,8 @@ export function MonitorPage() {
     refetchInterval: 10_000,
   });
 
+  const chargingFloors = useChargingData();
+  const chargingHere = fid ? chargingFloors[fid] : undefined;
   const setWatch = useRealtime((s) => s.setWatch);
   const robotsByCode = useRealtime((s) => s.robots);
   const robots = useMemo(
@@ -185,7 +189,11 @@ export function MonitorPage() {
                 tip: `${r.code} · ${t((r.online ? `state.${r.state}` : 'state.offline') as MessageKey)} · ${Math.round(r.battery)}%`,
               }))}
               cameras={camList}
-              chargers={(chargers.data ?? []).map((c) => ({ ...c, occupiedBy: c.occupiedBy?.code ?? null }))}
+              chargers={(chargers.data ?? []).map((c) => ({
+                ...c,
+                // 充電排程的即時佔用優先（WebSocket charger.updated），沒有才用資料庫欄位
+                occupiedBy: chargingHere?.chargers.find((x) => x.id === c.id)?.occupiedBy?.code ?? (chargingHere ? null : (c.occupiedBy?.code ?? null)),
+              }))}
               selectedRobotId={selected}
               onRobotClick={(id) => setSelected((s) => (s === id ? null : id))}
               onCameraClick={(id) => setSelCam(id)}
@@ -193,6 +201,7 @@ export function MonitorPage() {
               <div className="floor-tag">
                 <strong>{floor.name}</strong>
                 <span>{t('monitor.map.floorSub', { robots: robots.length, cameras: camList.length })}</span>
+                {!!chargingHere?.queue.length && <span className="warn-text">{t('charge.queue', { n: chargingHere.queue.length })}</span>}
                 {!floor.planUrl && <em>{floor.widthM ? t('monitor.map.noPlan') : t('monitor.map.noSize')}</em>}
               </div>
               <div className="legend">
@@ -266,7 +275,14 @@ export function MonitorPage() {
       </section>
 
       {robot && (
-        <RobotDrawer robot={robot} floorName={floor?.name ?? robot.floor} busy={busy} onClose={() => setSelected(null)} onCommand={command} />
+        <RobotDrawer
+          robot={robot}
+          floorName={floor?.name ?? robot.floor}
+          busy={busy}
+          charge={chargeStatusOf(chargingFloors, robot.robotId)}
+          onClose={() => setSelected(null)}
+          onCommand={command}
+        />
       )}
     </div>
   );

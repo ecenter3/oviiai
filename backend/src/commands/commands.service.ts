@@ -41,6 +41,12 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
    * 同時任務又回佇列，可能被派給另一台）。
    */
   private resumeOnRelease: (robot: RobotInfo) => Promise<boolean> = async () => true;
+
+  /** 充電排程註冊：「回充」交給排程選樁、排隊（T-19）；沒註冊時直接送 charge */
+  private chargeHandler?: (robot: RobotInfo, userId: string) => Promise<CmdRecord>;
+  setChargeHandler(fn: (robot: RobotInfo, userId: string) => Promise<CmdRecord>) {
+    this.chargeHandler = fn;
+  }
   setResumeOnRelease(fn: (robot: RobotInfo) => Promise<boolean>) {
     this.resumeOnRelease = fn;
   }
@@ -107,7 +113,10 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
-    const rec = await this.bus.send(robot, type, parsed.data as Record<string, unknown>, actor.sub);
+    const rec =
+      type === 'charge' && this.chargeHandler
+        ? await this.chargeHandler(robot, actor.sub)
+        : await this.bus.send(robot, type, parsed.data as Record<string, unknown>, actor.sub);
     // 急停：先送出指令（最優先），再釋放遙控鎖，讓遙控端立刻停送
     if (type === 'estop') await this.releaseOnEstop(robot, actor.username);
     this.issued$.next({ robot, type, userId: actor.sub });
