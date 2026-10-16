@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireLogin, RequirePage } from './components/RequirePage';
 import { LoginPage } from './pages/LoginPage';
+import { AlarmSettingsPage } from './pages/alarms/AlarmSettingsPage';
+import { AlarmsPage } from './pages/alarms/AlarmsPage';
 import { DispatchPage } from './pages/dispatch/DispatchPage';
 import { MonitorPage } from './pages/monitor/MonitorPage';
 import { RobotsPage } from './pages/robots/RobotsPage';
@@ -17,6 +19,9 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/robots': RobotsPage,
   '/dispatch': DispatchPage,
   '/settings': SettingsPage,
+  '/alarms/system': () => <AlarmsPage key="system" category="system" />,
+  '/alarms/business': () => <AlarmsPage key="business" category="business" />,
+  '/alarms/settings': AlarmSettingsPage,
 };
 
 export function App() {

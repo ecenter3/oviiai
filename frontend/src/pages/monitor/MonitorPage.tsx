@@ -8,6 +8,7 @@ import { useToast } from '../../stores/toast';
 import { chargeStatusOf } from '../../stores/charging';
 import { useChargingData } from '../useChargingData';
 import { type DrawerCommand, RobotDrawer } from './RobotDrawer';
+import { AlertLog } from './AlertLog';
 import { TasksPanel } from './TasksPanel';
 
 interface Floor {
@@ -264,15 +265,7 @@ export function MonitorPage() {
         </div>
       </section>
 
-      <section className="panel alerts" aria-label={t('monitor.alerts')}>
-        <div className="panel-head">{t('monitor.alerts')}</div>
-        <div className="scroll">
-          <div className="empty">
-            {t('monitor.alerts.empty')}
-            <small>{t('monitor.alerts.notReady')}</small>
-          </div>
-        </div>
-      </section>
+      <AlertLog />
 
       {robot && (
         <RobotDrawer

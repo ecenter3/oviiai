@@ -8,6 +8,25 @@ const BASE = '/api/v1';
  * refresh 也失敗就視為登入過期。回傳解析後的 JSON（204 回 undefined）。
  */
 export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  const r = await request(path, init);
+  if (r.status === 204) return undefined as T;
+  return (await r.json()) as T;
+}
+
+/** 下載檔案（例：告警匯出 CSV）：帶 access token 取回內容後，以瀏覽器下載 */
+export async function download(path: string, filename: string): Promise<void> {
+  const r = await request(path);
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+async function request(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const { json, ...rest } = init;
   const send = (token: string | null) => {
     const headers = new Headers(rest.headers);
@@ -32,8 +51,7 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
     if (r.status === 401) expire();
   }
   if (!r.ok) throw await toApiError(r);
-  if (r.status === 204) return undefined as T;
-  return (await r.json()) as T;
+  return r;
 }
 
 export { ApiError };

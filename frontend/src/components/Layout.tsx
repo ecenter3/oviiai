@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { t, type MessageKey } from '../i18n';
 import { connectRealtime, disconnectRealtime } from '../realtime/socket';
+import { unlockAudio } from '../realtime/sound';
 import { buildMenu } from '../routes';
 import { useAuth } from '../stores/auth';
 import { type Conn, useRealtime } from '../stores/realtime';
+import { AlarmPopup } from './AlarmPopup';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { Toaster } from './Toaster';
 
@@ -39,6 +41,7 @@ export function Layout() {
 
   useEffect(() => {
     connectRealtime();
+    unlockAudio();
     return () => disconnectRealtime();
   }, []);
 
@@ -97,10 +100,7 @@ export function Layout() {
             {t('top.stat.todayTasks')}
             <b>{stats?.todayTasks ?? '—'}</b>
           </span>
-          <span>
-            {t('top.stat.openAlarms')}
-            <b className={stats?.openAlarms ? 'alert' : ''}>{stats?.openAlarms ?? '—'}</b>
-          </span>
+          <OpenAlarms count={stats?.openAlarms} perms={perms} />
         </div>
         <div className="tright">
           {conn !== 'connected' && <span className={`conn conn-${conn}`}>{t(CONN_TEXT[conn])}</span>}
@@ -146,8 +146,27 @@ export function Layout() {
         </div>
       </div>
       {pwdOpen && <ChangePasswordDialog onClose={() => setPwdOpen(false)} />}
+      <AlarmPopup />
       <Toaster />
     </div>
+  );
+}
+
+/** 頂欄「未處理告警」：有告警頁權限時可點，跳到未處理的系統（或業務）告警 */
+function OpenAlarms({ count, perms }: { count: number | undefined; perms: readonly string[] }) {
+  const body = (
+    <>
+      {t('top.stat.openAlarms')}
+      <b className={count ? 'alert' : ''}>{count ?? '—'}</b>
+    </>
+  );
+  const to = perms.includes('sysalarm') ? '/alarms/system' : perms.includes('bizalarm') ? '/alarms/business' : null;
+  return to ? (
+    <Link to={to} className="tstat-link">
+      {body}
+    </Link>
+  ) : (
+    <span>{body}</span>
   );
 }
 
