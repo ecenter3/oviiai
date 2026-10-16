@@ -7,11 +7,8 @@ import { formatTime, t, type MessageKey } from '../../i18n';
 import { ACTIVE_STATUSES, type DispatchMode, type Task, useTasks } from '../../stores/tasks';
 import { useToast } from '../../stores/toast';
 import { RejectDialog, targetLabel } from '../monitor/TasksPanel';
+import { DispatchForm, type Floor } from './DispatchForm';
 
-interface Floor {
-  id: string;
-  name: string;
-}
 interface TaskDetail extends Task {
   events: { at: string; type: string; data: Record<string, unknown> | null }[];
 }
@@ -25,8 +22,8 @@ export function daysLeft(until: string, now = new Date()): number {
 }
 
 /**
- * 派工管理（/dispatch）。這一版是審批頁（T-18）：審批模式狀態、待審批清單（核准、駁回、全部核准）、
- * 最近任務與歷程。手動建單、任務範本在 T-20 加入。
+ * 派工管理（/dispatch，原型「派工與任務範本」）：手動派工、任務範本、審批狀態（T-20）；
+ * 待審批清單（核准、駁回、全部核准）、最近任務與歷程（T-18）。
  */
 export function DispatchPage() {
   const qc = useQueryClient();
@@ -66,13 +63,15 @@ export function DispatchPage() {
   return (
     <div className="page dispatch-page">
       <h1 className="page-h">{t('page.dispatch')}</h1>
-      <div className="dgrid2">
+      <div className="dgrid">
+        <DispatchForm floors={floors.data ?? []} mode={mode.data} />
         <section className="dcard">
           <h3>{t('dispatch.approval.title')}</h3>
           {mode.data && <ApprovalStatus mode={mode.data} />}
-          <p className="hint">{t('dispatch.create.later')}</p>
         </section>
+      </div>
 
+      <div>
         <section className="dcard">
           <h3>
             {t('dispatch.pending.title', { n: pending.length })}

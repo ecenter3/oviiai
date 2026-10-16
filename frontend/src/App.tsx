@@ -6,6 +6,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DispatchPage } from './pages/dispatch/DispatchPage';
 import { MonitorPage } from './pages/monitor/MonitorPage';
 import { RobotsPage } from './pages/robots/RobotsPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
 import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './pages/StatusPages';
 import { PAGES } from './routes';
 import { useAuth } from './stores/auth';
@@ -15,6 +16,7 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/': MonitorPage,
   '/robots': RobotsPage,
   '/dispatch': DispatchPage,
+  '/settings': SettingsPage,
 };
 
 export function App() {

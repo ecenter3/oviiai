@@ -6,7 +6,10 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { robotTone } from '../../components/FloorMap/geometry';
 import { PermGate } from '../../components/PermGate';
 import { t, type MessageKey } from '../../i18n';
+import { ChargeCompleteButton } from '../../components/ChargeCompleteButton';
 import { useAuth } from '../../stores/auth';
+import { type ChargeStatus, chargeStatusOf } from '../../stores/charging';
+import { useChargingData } from '../useChargingData';
 import { type RobotLive, useRealtime } from '../../stores/realtime';
 import { useTasks } from '../../stores/tasks';
 import { useToast } from '../../stores/toast';
@@ -50,6 +53,7 @@ export function RobotsPage() {
   const floors = useQuery({ queryKey: ['floors'], queryFn: () => api<Floor[]>('/floors') });
   const rows = useQuery({ queryKey: ['robots'], queryFn: () => api<RobotRow[]>('/robots'), refetchInterval: 10_000 });
   const live = useRealtime((s) => s.robots);
+  const chargingFloors = useChargingData();
   const setWatch = useRealtime((s) => s.setWatch);
   const me = useAuth((s) => s.user);
   const [floor, setFloor] = useState('all');
@@ -138,6 +142,7 @@ export function RobotsPage() {
               key={r.id}
               robot={r}
               floorName={floorName(r.floorId)}
+              charge={chargeStatusOf(chargingFloors, r.id)}
               mine={r.teleop?.userId === me?.id}
               busy={busy === r.id}
               onEstop={() => void command(r, 'estop')}
@@ -190,6 +195,7 @@ const VALUE_CLASS: Record<string, string> = {
 function RobotCard(props: {
   robot: RobotRow;
   floorName: string;
+  charge: ChargeStatus | null;
   mine: boolean;
   busy: boolean;
   onEstop(): void;
@@ -227,6 +233,10 @@ function RobotCard(props: {
         <b className={low ? 'warn' : ''}>{r.live ? `${r.live.battery.toFixed(0)}%${r.live.charging ? ' ⚡' : ''}` : '—'}</b>
       </div>
       <div className="row">
+        <span>{t('robots.charge')}</span>
+        <b className={props.charge?.kind === 'manual' ? 'warn' : ''}>{props.charge?.text ?? '—'}</b>
+      </div>
+      <div className="row">
         <span>{t('robots.task')}</span>
         <b>{r.task ? `${r.task.code}（${t(`task.status.${r.task.status}` as MessageKey)}）` : '—'}</b>
       </div>
@@ -241,6 +251,7 @@ function RobotCard(props: {
       {r.teleop && <div className="rc-note">{t('robots.teleopBy', { name: r.teleop.username })}</div>}
 
       <div className="rc-acts">
+        {props.charge?.kind === 'manual' && <ChargeCompleteButton robotId={r.id} code={r.code} />}
         <PermGate perms={['op.estop']}>
           {st === 'estop' ? (
             <button type="button" className="mini" disabled={busy} onClick={props.onRelease}>

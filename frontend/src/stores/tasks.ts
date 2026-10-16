@@ -34,6 +34,8 @@ export interface DispatchMode {
   approvalSetting: boolean;
   approvalUntil: string | null;
   p1Preempt: boolean;
+  /** 待審批筆數 */
+  pending: number;
 }
 
 export const ACTIVE_STATUSES: Task['status'][] = ['pending_approval', 'queued', 'assigned', 'running', 'paused'];

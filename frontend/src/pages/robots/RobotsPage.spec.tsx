@@ -35,6 +35,11 @@ const ROWS: RobotRow[] = [
   { id: 'r3', code: 'ANBOT-001', brand: 'anbot', model: 'ANBOT-Y', floorId: 'b1', caps: [], live: live({ robotId: 'r3', code: 'ANBOT-001', floor: 'b1', battery: 30, faults: [{ code: 'E12', level: 2, msg: '溫度' }] }), teleop: { userId: 'me', username: 'guard1' }, task: null },
 ];
 
+const CHARGING = [
+  { floor: '1f', chargers: [{ id: 'k1', code: 'CHG-1F-1', x: 1, y: 1, occupiedBy: { robotId: 'r1', code: 'B2-001', status: 'charging' } }], queue: [], manual: [] },
+  { floor: 'b1', chargers: [], queue: [], manual: [{ robotId: 'r3', code: 'ANBOT-001', since: 0, battery: 30 }] },
+];
+
 function setup(perms: string[]) {
   const calls: { url: string; body?: unknown }[] = [];
   vi.stubGlobal(
@@ -43,6 +48,7 @@ function setup(perms: string[]) {
       calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       if (url.endsWith('/floors')) return new Response(JSON.stringify(FLOORS));
       if (url.endsWith('/robots')) return new Response(JSON.stringify(ROWS));
+      if (url.endsWith('/charging')) return new Response(JSON.stringify(CHARGING));
       if (url.includes('/teleop/release')) return new Response(null, { status: 204 });
       return new Response(JSON.stringify({ cmdId: 'c', status: 'sent' }), { status: 202 });
     }),
@@ -128,5 +134,14 @@ describe('機器人狀態頁', () => {
     setup(['robots']);
     await screen.findByRole('article', { name: 'B2-001' });
     expect(within(card('B2-001')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('充電狀態：充電中顯示樁、等人工充電顯示「完成充電」（op.config 或 op.remote）', async () => {
+    const calls = setup(['robots', 'op.config']);
+    await screen.findByRole('article', { name: 'B2-001' });
+    await waitFor(() => expect(card('B2-001').textContent).toContain('在 CHG-1F-1 充電中'));
+    expect(card('ANBOT-001').textContent).toContain('等待人工充電或換電池');
+    fireEvent.click(within(card('ANBOT-001')).getByRole('button', { name: '完成充電' }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/v1/robots/r3/charge-complete')).toBe(true));
   });
 });
