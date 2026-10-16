@@ -48,6 +48,15 @@ class Affine2D:
     def from_dict(cls, d: dict[str, float] | None) -> Affine2D:
         return cls(**d) if d else cls()
 
+    @classmethod
+    def to_robot_from_calib(cls, calib: dict | None) -> Affine2D:
+        """後端 GET /adapter-config 的 calib.matrix = [a, b, tx, c, d, ty]（機器人 → 平台）
+        → 轉接器要的 to_robot（平台 → 機器人）。沒有校正時不轉換。"""
+        if not calib or not calib.get("matrix"):
+            return cls()
+        a, b, tx, c, d, ty = (float(v) for v in calib["matrix"])
+        return cls(a, b, c, d, tx, ty).inverse()
+
 
 def _wrap(angle: float) -> float:
     return (angle + math.pi) % (2 * math.pi) - math.pi

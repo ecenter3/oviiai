@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AlarmsModule } from './alarms/alarms.module';
 import { AuthModule } from './auth/auth.module';
+import { CalibrationModule } from './calibration/calibration.module';
 import { DatabaseModule } from './db/database.module';
 import { DispatchModule } from './dispatch/dispatch.module';
 import { ChargingModule } from './charging/charging.module';
@@ -43,6 +44,7 @@ import { StorageModule } from './storage/storage.module';
     AlarmsModule,
     NavModule,
     SiteModule,
+    CalibrationModule,
     MaintenanceModule,
     RealtimeModule,
   ],

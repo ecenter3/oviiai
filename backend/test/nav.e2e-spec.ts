@@ -203,6 +203,9 @@ describe.skipIf(!ready)('導航後端與巡邏排程（e2e）', () => {
       const row = (await as(nav, http().get(`/api/v1/patrol-schedules?floor=${FLOOR}`)).expect(200)).body.find((x: { id: string }) => x.id === s.id);
       expect(row.lastTask).toMatchObject({ code: r.taskCode });
       await as(viewer, http().post(`/api/v1/patrol-schedules/${s.id}/run`)).expect(403);
+      const opt = (await as(nav, http().get(`/api/v1/patrol-schedules/options?floor=${FLOOR}`)).expect(200)).body;
+      expect(opt.robots.map((r: { id: string }) => r.id)).toEqual([robotId]);
+      await as(viewer, http().get('/api/v1/patrol-schedules/options')).expect(403);
     });
 
     it('遲到超過 30 分鐘不補跑；停用的排程不跑；僅一次觸發後自動停用', async () => {
