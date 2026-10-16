@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AlarmsModule } from './alarms/alarms.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './db/database.module';
 import { DispatchModule } from './dispatch/dispatch.module';
@@ -17,7 +18,6 @@ import { MapsModule } from './maps/maps.module';
 import { UsersModule } from './users/users.module';
 
 // 模組依工程開發手冊「後端」章節逐步加入：
-// alarms,
 // cameras, media, face, site, reports, integrations
 @Module({
   imports: [
@@ -35,6 +35,7 @@ import { UsersModule } from './users/users.module';
     CommandsModule,
     DispatchModule,
     ChargingModule,
+    AlarmsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

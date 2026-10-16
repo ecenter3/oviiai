@@ -181,11 +181,13 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
         enabled: true,
         state: live.state,
         battery: live.battery,
+        charging: live.charging,
         x: live.x,
         y: live.y,
         caps: info.caps,
         teleopLocked: !!(await this.lock.holder(info.code)),
-        busy: !!occ,
+        // 在充電佇列、前往充電樁、等人工充電：不可接單（使用者在高電量時按回充也一樣）
+        busy: !!occ || (await this.chargeBlocked(info)),
         taskPriority: occ?.priority ?? null,
       });
     }

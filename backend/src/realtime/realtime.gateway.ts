@@ -16,6 +16,8 @@ import { AuthRepository } from '../auth/auth.repository';
 import type { AccessPayload } from '../auth/auth.service';
 import { satisfies } from '../auth/perm.decorator';
 import type { Principal } from '../auth/principal';
+import { visibleCategories } from '../alarms/alarms.controller';
+import { type AlarmCategory, AlarmsService } from '../alarms/alarms.service';
 import { ChargingService } from '../charging/charging.service';
 import { CommandBus } from '../commands/command-bus.service';
 import { CommandsService, type TeleopResult } from '../commands/commands.service';
@@ -25,8 +27,10 @@ import { FleetService } from '../fleet/fleet.service';
 import { TokenBucket } from './rate-limit';
 import { StatsService } from './stats.service';
 
-/** 看得到機器人即時狀態的頁面：實時監控、機器人狀態、實時遙控 */
-const WS_PERMS = { mode: 'any' as const, codes: ['monitor' as const, 'robots' as const, 'remote' as const] };
+/** 看得到機器人即時狀態的頁面：實時監控、機器人狀態、實時遙控（subscribe 樓層需要） */
+const ROBOT_PERMS = { mode: 'any' as const, codes: ['monitor' as const, 'robots' as const, 'remote' as const] };
+/** 可以連線：看機器人，或只看告警（告警頁的使用者也要收 alarm.new 彈窗響鈴） */
+const WS_PERMS = { mode: 'any' as const, codes: [...ROBOT_PERMS.codes, 'sysalarm' as const, 'bizalarm' as const] };
 
 const Subscribe = z.object({ floors: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(10) });
 
@@ -35,6 +39,8 @@ export const userRoom = (userId: string) => `user:${userId}`;
 /** 看得到任務內容的連線（與 GET /tasks 相同：dispatch 或 monitor；PR #6 審查第 3 點） */
 export const TASKS_ROOM = 'tasks';
 const TASK_PERMS = { mode: 'any' as const, codes: ['dispatch' as const, 'monitor' as const] };
+/** 告警依類別分房間：與 GET /alarms 相同的可見範圍 */
+export const alarmRoom = (category: AlarmCategory) => `alarms:${category}`;
 
 interface SocketData {
   user: Principal;
@@ -53,7 +59,8 @@ function wsError(code: string, message: string) {
  * 驗證只在連線時做一次（PR #2 審查第 4 點）；access token 到期主動斷線，前端以新 token 重連。
  *
  * 伺服器 → 瀏覽器：robot.state、robot.online（fleet）、robot.cmdResult（指令匯流排）、teleop.revoked、teleop.error、
- *   stats.tick（每 5 秒，所有連線；連線時先送一次）、task.updated（有 dispatch 或 monitor 權限的連線）
+ *   stats.tick（每 5 秒，所有連線；連線時先送一次）、task.updated（有 dispatch 或 monitor 權限的連線）、
+ *   alarm.new／alarm.updated（依類別：sysalarm 或 monitor 收系統告警，bizalarm 或 monitor 收業務告警）
  * 瀏覽器 → 伺服器：subscribe {floors}、teleop.cmd {robotId, lockId, vx, vy, wz}
  */
 @WebSocketGateway({ path: '/ws', serveClient: false })
@@ -75,6 +82,7 @@ export class RealtimeGateway
     private readonly stats: StatsService,
     private readonly tasks: TasksService,
     private readonly charging: ChargingService,
+    private readonly alarms: AlarmsService,
   ) {}
 
   afterInit(server: Server) {
@@ -96,6 +104,9 @@ export class RealtimeGateway
       this.tasks.changes$.subscribe((t) => server.to(TASKS_ROOM).emit('task.updated', t)),
       // 充電樁佔用、排隊、人工充電變化（介面規格 §4 charger.updated；這裡一次送整個樓層）
       this.charging.updates$.subscribe((v) => server.to(floorRoom(v.floor)).emit('charger.updated', v)),
+      // 告警（介面規格 §4 alarm.new：告警物件＋通知設定；alarm.updated：狀態、處理人、重複次數）
+      this.alarms.created$.subscribe((m) => server.to(alarmRoom(m.alarm.category)).emit('alarm.new', m)),
+      this.alarms.updated$.subscribe((m) => server.to(alarmRoom(m.category)).emit('alarm.updated', m)),
       this.lock.revoked$.subscribe((m) =>
         server.to(userRoom(m.previous.userId)).emit('teleop.revoked', { robotId: m.robotId, code: m.code, by: m.by, reason: m.reason }),
       ),
@@ -139,6 +150,7 @@ export class RealtimeGateway
     const parsed = Subscribe.safeParse(body);
     if (!parsed.success) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '樓層格式錯誤' } };
     const data = socket.data as SocketData;
+    if (!satisfies(data.user.perms, ROBOT_PERMS)) return { ok: false, error: { code: 'FORBIDDEN', message: '沒有權限查看機器人狀態' } };
     for (const f of data.floors ?? []) await socket.leave(floorRoom(f));
     data.floors = [...new Set(parsed.data.floors)];
     for (const f of data.floors) await socket.join(floorRoom(f));
@@ -175,7 +187,7 @@ export class RealtimeGateway
     }
     const u = await this.users.findById(payload.sub);
     if (!u || !u.enabled) throw wsError('UNAUTHENTICATED', '帳號已停用或不存在');
-    if (!satisfies(u.perms, WS_PERMS)) throw wsError('FORBIDDEN', '沒有權限查看機器人狀態');
+    if (!satisfies(u.perms, WS_PERMS)) throw wsError('FORBIDDEN', '沒有權限查看機器人狀態或告警');
 
     const data = socket.data as SocketData;
     data.user = {
@@ -190,6 +202,7 @@ export class RealtimeGateway
     data.floors = [];
     await socket.join(userRoom(u.id));
     if (satisfies(u.perms, TASK_PERMS)) await socket.join(TASKS_ROOM);
+    for (const c of visibleCategories(u.perms)) await socket.join(alarmRoom(c));
     if (payload.exp) {
       data.expiryTimer = setTimeout(
         () => {

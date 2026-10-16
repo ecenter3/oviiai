@@ -11,6 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { hashPassword } from '../src/auth/password';
+import { waitPoint, yieldPoint } from '../src/charging/charge-plan';
 import { type ChargeAlert, ChargingService } from '../src/charging/charging.service';
 import { loadEnv } from '../src/config';
 import { createDatabase, type Database } from '../src/db/database.module';
@@ -47,6 +48,11 @@ interface Bot {
   cmds: { cmdId: string; type: string; args: Record<string, unknown> }[];
   /** 任務導航停在途中（測試「執行任務中」）；往充電點的導航照樣抵達 */
   hold?: boolean;
+  /** 真機情境：上樁後 state 回報 idle、只有 battery.charging=true（PR #8 審查第 1 點） */
+  idleDock?: boolean;
+  docked?: boolean;
+  /** charge 指令一律回 failed */
+  failCharge?: boolean;
   /** 每個測試開始時遞增；上一個測試還在路上的指令回應（延遲 60 ms）不再改動狀態 */
   epoch: number;
 }
@@ -69,7 +75,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
   const tele = (b: Bot) =>
     adapter.publishAsync(
       `rms/robot/${b.code}/telemetry`,
-      JSON.stringify({ ts: Date.now(), pose: { x: b.x, y: b.y, yaw: 0, floor: FLOOR }, battery: { pct: b.battery, charging: b.state === 'charging' }, state: b.state, faults: [] }),
+      JSON.stringify({ ts: Date.now(), pose: { x: b.x, y: b.y, yaw: 0, floor: FLOOR }, battery: { pct: b.battery, charging: b.state === 'charging' || !!b.docked }, state: b.state, faults: [] }),
     );
   const ack = (b: Bot, cmdId: string, status: string) =>
     adapter.publishAsync(`rms/robot/${b.code}/ack`, JSON.stringify({ cmdId, ts: Date.now(), status }), { qos: 1 });
@@ -154,7 +160,18 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       const stale = () => b.epoch !== epoch;
       void (async () => {
         await ack(b, m.cmdId, 'accepted');
-        if (m.type === 'charge') {
+        if (m.type === 'charge' && b.failCharge) {
+          await new Promise((r) => setTimeout(r, 30));
+          if (!stale()) await ack(b, m.cmdId, 'failed');
+          return;
+        }
+        if (m.type === 'charge' && b.idleDock) {
+          b.state = 'returning';
+          await tele(b);
+          await new Promise((r) => setTimeout(r, 60));
+          if (stale()) return;
+          Object.assign(b, { x: m.args.x, y: m.args.y, state: 'idle', docked: true });
+        } else if (m.type === 'charge') {
           b.state = 'returning';
           await tele(b);
           await new Promise((r) => setTimeout(r, 60));
@@ -166,7 +183,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
           if (b.hold && !atCharger(m.args.x, m.args.y)) return; // 停在途中，不回 done
           await new Promise((r) => setTimeout(r, 60));
           if (stale()) return;
-          Object.assign(b, { x: m.args.x, y: m.args.y, state: 'idle' });
+          Object.assign(b, { x: m.args.x, y: m.args.y, state: 'idle', docked: false });
         } else if (m.type === 'stop') b.state = 'idle';
         if (stale()) return;
         await ack(b, m.cmdId, 'done');
@@ -184,8 +201,10 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
     for (const id of ids) {
       await redis.hdel('charge:assign', id);
       await redis.hdel('charge:manual', id);
+      await redis.hdel('charge:fails', id);
     }
     await redis.del(`charge:queue:${FLOOR}`);
+    await db.deleteFrom('pois').where('floor_id', '=', FLOOR).execute();
     await db.updateTable('chargers').set({ occupied_by: null }).where('id', 'in', chargerIds).execute();
     await db.deleteFrom('task_events').where('task_id', 'in', db.selectFrom('tasks').select('id').where('floor_id', '=', FLOOR)).execute();
     await db.deleteFrom('tasks').where('floor_id', '=', FLOOR).execute();
@@ -196,6 +215,9 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       b.epoch++;
       b.cmds.length = 0;
       b.hold = false;
+      b.idleDock = false;
+      b.docked = false;
+      b.failCharge = false;
       await setBot(b.code, { state: 'idle', battery: 80, x: [5, 8, 30, 35][i], y: 10 });
     }
   });
@@ -211,6 +233,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       for (const b of Object.values(bots)) {
         await redis.hdel('charge:assign', b.id);
         await redis.hdel('charge:manual', b.id);
+        await redis.hdel('charge:fails', b.id);
         await redis.del(`robot:${b.code}`, `teleop:${b.code}`);
       }
       await redis.del(`charge:queue:${FLOOR}`);
@@ -225,6 +248,9 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       await db.deleteFrom('robot_state_log').where('robot_id', 'in', ids).execute();
       // 充電樁的 occupied_by 參照機器人：先刪樁，否則測試失敗時刪不掉機器人
       await db.deleteFrom('chargers').where('id', 'in', chargerIds).execute();
+      // 低電量、排隊過久、回充失敗等會經告警管線建告警：連同處理歷程一起清掉
+      await db.deleteFrom('alarms').where((eb) => eb.or([eb('robot_id', 'in', ids), eb('floor_id', '=', FLOOR)])).execute();
+      await db.deleteFrom('pois').where('floor_id', '=', FLOOR).execute();
       await db.deleteFrom('robots').where('id', 'in', ids).execute();
       await db.deleteFrom('floors').where('id', '=', FLOOR).execute();
       await db.deleteFrom('op_logs').where('user_id', '=', userId).execute();
@@ -268,6 +294,11 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
 
     await setBot(B(1), { battery: 90 });
     await tick(); // 讓位：送導航離樁
+    // 沒有待命點：從樁 (2,6) 側向退出，不走排隊那條線（PR #8 審查第 2 點）
+    const out = bots[B(1)].cmds.find((c) => c.type === 'navigate')!.args as { x: number; y: number };
+    expect(out).toEqual(yieldPoint({ x: 2, y: 6 }, { w: 40, h: 20 }, []));
+    const q = waitPoint({ x: 2, y: 6 }, { w: 40, h: 20 }, 0);
+    expect(Math.hypot(out.x - q.x, out.y - q.y)).toBeGreaterThan(2);
     await until(() => bots[B(1)].state === 'idle');
     await tick(); // 釋放樁 → 指派給排隊的第 3 台
     await until(() => bots[B(3)].state === 'charging');
@@ -280,7 +311,8 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
     expect(sessions.at(-1)).toMatchObject({ mode: 'auto', start_pct: 20, end_pct: 90 });
   });
 
-  it('兩座都充到 90% 以上、只有 1 台排隊：只讓出一座（實測發現的問題）', async () => {
+  it('兩座都充到 90% 以上、只有 1 台排隊：只讓出一座（實測發現的問題）；讓位開到待命點', async () => {
+    await db.insertInto('pois').values({ floor_id: FLOOR, name: `${tag} 待命點`, x: 12, y: 3, kind: 'parking' }).execute();
     await setBot(B(1), { battery: 20 });
     await setBot(B(2), { battery: 21 });
     await tick();
@@ -300,6 +332,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
     await tick();
     const leftCharger = [B(1), B(2)].filter((c) => types(c).includes('navigate'));
     expect(leftCharger).toHaveLength(1); // 只有一台讓位
+    expect(bots[leftCharger[0]].cmds.find((c) => c.type === 'navigate')!.args).toEqual({ x: 12, y: 3 });
     const v = await floorView();
     expect(v.chargers.map((c) => c.occupiedBy?.code).filter(Boolean).sort()).toHaveLength(2);
   });
@@ -367,6 +400,97 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
     expect(alerts.filter((a) => a.type === 'charge_queue').map((a) => a.robot.code)).toEqual([B(4)]);
     await tick();
     expect(alerts.filter((a) => a.type === 'charge_queue')).toHaveLength(1);
+  });
+
+  describe('PR #8 審查修正', () => {
+    it('上樁後回報 idle＋battery.charging=true：視為開始充電，不釋放、不重送', async () => {
+      bots[B(1)].idleDock = true;
+      await setBot(B(1), { battery: 20 });
+      await tick();
+      await until(() => bots[B(1)].docked);
+      await until(() => app.get(FleetService).get(B(1))?.charging);
+      await tick();
+      const v = await floorView();
+      expect(v.chargers.find((c) => c.occupiedBy?.code === B(1))?.occupiedBy?.status).toBe('charging');
+      for (let i = 0; i < 3; i++) await tick();
+      expect(types(B(1))).toEqual(['charge']);
+      // 充到 90% 且有人排隊：照樣讓位（離樁判斷也看 charging）
+      await setBot(B(2), { battery: 21 });
+      await setBot(B(3), { battery: 22 });
+      await tick();
+      await tick();
+      expect((await floorView()).queue.map((q) => q.code)).toEqual([B(3)]);
+      await setBot(B(1), { battery: 91 });
+      await tick();
+      expect(types(B(1))).toEqual(['charge', 'navigate']);
+    });
+
+    it('連續 3 次回充失敗：停止自動重送並發 charge_failed 告警；使用者按回充可重試', async () => {
+      bots[B(1)].failCharge = true;
+      await setBot(B(1), { battery: 20 });
+      const redis = app.get<Redis>(REDIS);
+      for (let i = 1; i <= 3; i++) {
+        await tick(); // 釋放上一次失敗的、再送一次
+        await until(() => types(B(1)).filter((t) => t === 'charge').length === i);
+        await until(async () => JSON.parse((await redis.hget('charge:assign', bots[B(1)].id)) ?? '{}').failed === true);
+      }
+      await tick(); // 第 3 次失敗 → 釋放並告警，不再送
+      await tick();
+      await tick();
+      expect(types(B(1)).filter((t) => t === 'charge')).toHaveLength(3);
+      expect(alerts.filter((a) => a.type === 'charge_failed').map((a) => a.robot.code)).toEqual([B(1)]);
+      expect((await floorView()).chargers.every((c) => !c.occupiedBy)).toBe(true);
+
+      // 人員確認後手動按回充：重新計算
+      bots[B(1)].failCharge = false;
+      await auth(http().post(`/api/v1/robots/${bots[B(1)].id}/commands`)).send({ type: 'charge' }).expect(202);
+      await until(() => bots[B(1)].state === 'charging');
+      await tick();
+      expect(await redis.hget('charge:fails', bots[B(1)].id)).toBeNull();
+    });
+
+    it('啟動對齊：DB 有佔用、Redis 沒分配 → 機器人仍在樁上就補回，否則清掉', async () => {
+      // 1 號樁記著第 1 台、但它在待命；2 號樁記著第 2 台、它確實在樁上充電
+      await db.updateTable('chargers').set({ occupied_by: bots[B(1)].id }).where('id', '=', chargerIds[0]).execute();
+      await db.updateTable('chargers').set({ occupied_by: bots[B(2)].id }).where('id', '=', chargerIds[1]).execute();
+      await setBot(B(2), { state: 'charging', battery: 50, x: 2, y: 6 });
+      // Redis 遺失前兩台都有開著的充電紀錄
+      const s1 = (await db.insertInto('charge_sessions').values({ robot_id: bots[B(1)].id, charger_id: chargerIds[0], mode: 'auto', start_pct: 20 }).returning('id').executeTakeFirstOrThrow()).id;
+      const s2 = (await db.insertInto('charge_sessions').values({ robot_id: bots[B(2)].id, charger_id: chargerIds[1], mode: 'auto', start_pct: 30 }).returning('id').executeTakeFirstOrThrow()).id;
+      const r = await charging().reconcile();
+      expect(r).toEqual({ restored: [`CHG-${tag}-2`], cleared: [`CHG-${tag}-1`] });
+      const rows = await db.selectFrom('chargers').select(['id', 'occupied_by']).where('id', 'in', chargerIds).execute();
+      expect(rows.find((c) => c.id === chargerIds[0])!.occupied_by).toBeNull();
+      expect(rows.find((c) => c.id === chargerIds[1])!.occupied_by).toBe(bots[B(2)].id);
+      const v = await floorView();
+      expect(v.chargers.find((c) => c.code === `CHG-${tag}-2`)!.occupiedBy).toMatchObject({ code: B(2), status: 'charging' });
+      // 補回的沿用原本的充電紀錄；清掉的那筆結束
+      const rows2 = await db.selectFrom('charge_sessions').select(['id', 'ended_at', 'end_pct']).where('id', 'in', [s1, s2]).execute();
+      expect(rows2.find((x) => x.id === s1)).toMatchObject({ end_pct: 80 });
+      expect(rows2.find((x) => x.id === s1)!.ended_at).not.toBeNull();
+      expect(rows2.find((x) => x.id === s2)!.ended_at).toBeNull();
+      expect(JSON.parse((await app.get<Redis>(REDIS).hget('charge:assign', bots[B(2)].id))!).sessionId).toBe(s2);
+      // 再跑一次不會重複補
+      expect(await charging().reconcile()).toEqual({ restored: [], cleared: [] });
+    });
+
+    it('充電佇列中的機器人不會被派工（使用者高電量按回充、樁滿）', async () => {
+      await setBot(B(1), { battery: 20 });
+      await setBot(B(2), { battery: 21 });
+      await tick();
+      await until(() => bots[B(1)].state === 'charging' && bots[B(2)].state === 'charging');
+      await setBot(B(4), { battery: 30 }); // 電量不足，不能接
+      await auth(http().post(`/api/v1/robots/${bots[B(3)].id}/commands`)).send({ type: 'charge' }).expect(202);
+      await until(() => bots[B(3)].state === 'idle' && types(B(3)).includes('navigate'));
+      expect((await floorView()).queue.map((q) => q.code)).toEqual([B(3)]);
+
+      const r = await auth(http().post('/api/v1/tasks')).send({ kind: 'inspect', priority: 'P3', floorId: FLOOR, target: { x: 30, y: 10 } }).expect(201);
+      await new Promise((res) => setTimeout(res, 800));
+      await tick();
+      const t = await task(r.body.id);
+      expect(t.status).toBe('queued');
+      expect((await floorView()).queue.map((q) => q.code)).toEqual([B(3)]);
+    });
   });
 
   describe('人工充電模式（charge.mode.{brand} = manual）', () => {

@@ -113,6 +113,8 @@ describe.skipIf(!ready)('fleet（e2e）', () => {
     if (db) {
       await db.deleteFrom('telemetry').where('robot_id', '=', robotId).execute();
       await db.deleteFrom('robot_state_log').where('robot_id', '=', robotId).execute();
+      // 離線等事件會經告警管線建告警：連同處理歷程一起清掉
+      await db.deleteFrom('alarms').where('robot_id', '=', robotId).execute();
       await db.deleteFrom('robots').where('id', '=', robotId).execute();
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       if (users.length) await db.deleteFrom('users').where('id', 'in', users).execute();

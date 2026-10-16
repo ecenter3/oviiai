@@ -189,3 +189,13 @@ describe('P1 插隊對象（T-17）', () => {
     expect(pickPreemptVictim(p1, [busy(over)], S)).toBeNull();
   });
 });
+
+describe('在樁上但 state 仍是 idle（真機回報 charging=true，PR #8 審查第 1 點）', () => {
+  const s = { minAccept: 40, resumeAt: 90 };
+  it('電量未達 resumeAt 不接任務', () => {
+    expect(eligible(robot({ state: 'idle', charging: true, battery: 60 }), task(), s)).toBe(false);
+  });
+  it('充到 resumeAt 可接任務', () => {
+    expect(eligible(robot({ state: 'idle', charging: true, battery: 92 }), task(), s)).toBe(true);
+  });
+});

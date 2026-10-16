@@ -28,15 +28,29 @@ export interface RobotChargeView {
   online: boolean;
   state: string;
   battery: number;
+  /** 遙測 battery.charging */
+  charging: boolean;
   x: number;
   y: number;
   teleopLocked: boolean;
 }
 
+/**
+ * 是否在樁上充電：state='charging' 或 battery.charging=true 任一成立。
+ * 真機上樁後不一定切換 state（例如回報 idle 但 charging=true），兩者都要接受。
+ */
+export function onCharger(r: { state: string; charging: boolean }): boolean {
+  return r.state === 'charging' || r.charging;
+}
+
+/** 連續幾次前往充電樁失敗就停止自動重送、改發告警 */
+export const MAX_CHARGE_FAILS = 3;
+
 /** 電量 ≤ returnAt 且未在充電、不在急停／故障、沒被遙控 → 需要回充 */
 export function needsCharge(r: RobotChargeView, s: ChargeSettings): boolean {
   return (
     r.online &&
+    !r.charging &&
     r.battery <= s.returnAt &&
     !['charging', 'returning', 'estop', 'fault', 'teleop'].includes(r.state) &&
     !r.teleopLocked
@@ -82,6 +96,39 @@ export function waitPoint(c: Pick<ChargerInfo, 'x' | 'y'>, floor: { w: number | 
   const d = 1.5 + index;
   const clamp = (v: number, max: number | null) => Math.max(0, max ? Math.min(max, v) : v);
   return { x: round2(clamp(c.x + (dx / len) * d, floor.w)), y: round2(clamp(c.y + (dy / len) * d, floor.h)) };
+}
+
+/**
+ * 讓位的去處（PR #8 審查第 2 點）：排隊的機器人停在「樁 → 樓層中心」那條線上，讓位車不能沿同一條線開出去。
+ * 1. 同樓層有待命點（POI kind=parking）→ 開到最近的待命點；
+ * 2. 沒有 → 從樁的側向（與排隊線垂直）退出 2 公尺，選不會超出樓層範圍的那一側。
+ */
+export function yieldPoint(
+  c: Pick<ChargerInfo, 'x' | 'y'>,
+  floor: { w: number | null; h: number | null },
+  parking: { x: number; y: number }[] = [],
+): { x: number; y: number } {
+  const p = nearest(c, parking);
+  if (p) return { x: p.x, y: p.y };
+  return sideExit(c, floor);
+}
+
+export function sideExit(c: Pick<ChargerInfo, 'x' | 'y'>, floor: { w: number | null; h: number | null }, dist = 2): { x: number; y: number } {
+  // 排隊線方向（樁 → 第一個等候點），讓位往它的垂直方向走
+  const q = waitPoint(c, floor, 0);
+  const dx = q.x - c.x;
+  const dy = q.y - c.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const [px, py] = [-dy / len, dx / len];
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && (!floor.w || x <= floor.w) && (!floor.h || y <= floor.h);
+  for (const sign of [1, -1]) {
+    const x = c.x + px * dist * sign;
+    const y = c.y + py * dist * sign;
+    if (inside(x, y)) return { x: round2(x), y: round2(y) };
+  }
+  // 兩側都超出（樁在角落）：夾回樓層內
+  const clamp = (v: number, max: number | null) => Math.max(0, max ? Math.min(max, v) : v);
+  return { x: round2(clamp(c.x + px * dist, floor.w)), y: round2(clamp(c.y + py * dist, floor.h)) };
 }
 
 /** 充到 resumeAt 且有同品牌的機器人在排隊 → 離樁讓位 */

@@ -191,6 +191,8 @@ describe.skipIf(!ready)('派工（e2e）', () => {
       await db.deleteFrom('tasks').where('floor_id', '=', FLOOR).execute();
       await db.deleteFrom('telemetry').where('robot_id', 'in', ids).execute();
       await db.deleteFrom('robot_state_log').where('robot_id', 'in', ids).execute();
+      // 插隊、無車、離線等會經告警管線建告警：連同處理歷程一起清掉
+      await db.deleteFrom('alarms').where((eb) => eb.or([eb('robot_id', 'in', ids), eb('floor_id', '=', FLOOR)])).execute();
       await db.deleteFrom('robots').where('id', 'in', ids).execute();
       await db.deleteFrom('floors').where('id', '=', FLOOR).execute();
       await db.deleteFrom('op_logs').where('user_id', '=', userId).execute();

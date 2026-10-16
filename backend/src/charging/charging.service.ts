@@ -19,12 +19,15 @@ import {
   type ChargeSettings,
   compatible,
   manualDone,
+  MAX_CHARGE_FAILS,
   nearest,
   needsCharge,
+  onCharger,
   pickCharger,
   type RobotChargeView,
   shouldYield,
   waitPoint,
+  yieldPoint,
 } from './charge-plan';
 
 const TICK_MS = 2_000;
@@ -32,11 +35,15 @@ const LOCK = 'charge:lock';
 const LOCK_TTL_MS = 10_000;
 const ASSIGN = 'charge:assign';
 const MANUAL = 'charge:manual';
+/** 連續前往充電樁失敗次數（到樁開始充電就歸零） */
+const FAILS = 'charge:fails';
 const queueKey = (floor: string) => `charge:queue:${floor}`;
 /** 前往充電樁的上限；超過視為失敗，釋放樁重新排 */
 const HEADING_TIMEOUT_MS = 10 * 60_000;
 /** 讓位後超過這個時間還沒離樁，強制釋放 */
 const LEAVING_TIMEOUT_MS = 60_000;
+/** 啟動後等遙測進來再對齊 Redis 與 DB 的樁佔用（離線判定 robot.offlineSec 預設 10 秒） */
+const RECONCILE_DELAY_MS = 15_000;
 const RELEASE = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
 
 interface Assignment {
@@ -64,7 +71,8 @@ export type ChargeMode = 'auto' | 'manual';
 /** 給告警（T-21）：低電量排隊過久（二級）、需人工充電或換電池（二級，發給維修人員） */
 export type ChargeAlert =
   | { type: 'charge_queue'; robot: RobotInfo; battery: number; position: number; at: number }
-  | { type: 'manual_charge'; robot: RobotInfo; battery: number; chargerCode: string | null; at: number };
+  | { type: 'manual_charge'; robot: RobotInfo; battery: number; chargerCode: string | null; at: number }
+  | { type: 'charge_failed'; robot: RobotInfo; battery: number; fails: number; at: number };
 
 export interface ChargingFloorView {
   floor: string;
@@ -89,6 +97,7 @@ export interface ChargingFloorView {
 export class ChargingService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Charging');
   private timer?: NodeJS.Timeout;
+  private reconcileTimer?: NodeJS.Timeout;
   private subs: Subscription[] = [];
   private closing = false;
   private readonly alerted = new Set<string>();
@@ -130,11 +139,16 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
         ),
       TICK_MS,
     );
+    this.reconcileTimer = setTimeout(
+      () => void this.reconcile().catch((e) => this.log.error(e instanceof Error ? e.stack : String(e))),
+      RECONCILE_DELAY_MS,
+    );
   }
 
   onModuleDestroy() {
     this.closing = true;
     clearInterval(this.timer);
+    clearTimeout(this.reconcileTimer);
     for (const s of this.subs) s.unsubscribe();
   }
 
@@ -180,6 +194,54 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
     return (await this.settings.get(`charge.mode.${brand}`)) === 'manual' ? 'manual' : 'auto';
   }
 
+  /**
+   * 對齊 Redis `charge:assign` 與 DB `chargers.occupied_by`（PR #8 審查第 3 點）。
+   * Redis 資料遺失（重啟且沒開持久化）時 DB 仍顯示佔用：以遙測為準——機器人仍在樁上充電就補回分配，否則清掉佔用。
+   * 反過來 Redis 有分配、DB 沒記：補寫 DB。啟動 15 秒後自動跑一次（等遙測進來）。
+   */
+  async reconcile(): Promise<{ restored: string[]; cleared: string[] }> {
+    return this.withLock(async () => {
+      const restored: string[] = [];
+      const cleared: string[] = [];
+      const assignments = await this.assignments();
+      const rows = await this.db.selectFrom('chargers').select(['id', 'code', 'occupied_by']).execute();
+      for (const c of rows) {
+        const a = assignments.find((x) => x.chargerId === c.id);
+        if (a) {
+          if (c.occupied_by !== a.robotId) await this.db.updateTable('chargers').set({ occupied_by: a.robotId }).where('id', '=', c.id).execute();
+          continue;
+        }
+        if (!c.occupied_by) continue;
+        const robotId = c.occupied_by;
+        const live = this.liveOf(robotId);
+        // Redis 遺失前的充電紀錄還開著：補回分配時沿用，清掉佔用時一併結束
+        const open = await this.db
+          .selectFrom('charge_sessions')
+          .select('id')
+          .where('robot_id', '=', robotId)
+          .where('ended_at', 'is', null)
+          .where('mode', '=', 'auto')
+          .orderBy('started_at', 'desc')
+          .execute();
+        if (live?.online && onCharger(live) && !assignments.some((x) => x.robotId === robotId)) {
+          const sessionId = open[0]?.id ?? (await this.startSession(robotId, c.id, 'auto', live.battery));
+          for (const o of open.slice(1)) await this.endSession(o.id, null);
+          const na: Assignment = { robotId, chargerId: c.id, status: 'charging', since: Date.now(), sessionId };
+          await this.redis.hset(ASSIGN, robotId, JSON.stringify(na));
+          restored.push(c.code);
+          this.log.log(`對齊：${live.code} 仍在 ${c.code} 充電，補回分配`);
+        } else {
+          await this.db.updateTable('chargers').set({ occupied_by: null }).where('id', '=', c.id).where('occupied_by', '=', robotId).execute();
+          for (const o of open) await this.endSession(o.id, live?.battery ?? null);
+          cleared.push(c.code);
+          this.log.log(`對齊：${c.code} 無分配且機器人不在樁上，清除佔用`);
+        }
+      }
+      if (restored.length || cleared.length) await this.emitAll();
+      return { restored, cleared };
+    });
+  }
+
   /** 執行一輪（等到拿到鎖）。背景計時器另外每 2 秒跑一次 */
   async tick(): Promise<void> {
     if (this.closing) return;
@@ -200,6 +262,8 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
 
     const chargers = (await this.chargers()).filter((c) => compatible(robot, c));
     if (!chargers.length) throw new AppError('INVALID_STATE', `${robot.code} 所在樓層沒有適用的充電樁`);
+    // 使用者手動按回充：重新開始計算失敗次數（自動重送已停的機器人可由人員確認後重試）
+    if (source === 'user') await this.resetFails(robot.id);
 
     await this.dispatch.pauseRobot(robot, 'charge');
     const view = this.robotView(robot);
@@ -266,20 +330,27 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
       if (a.status === 'heading') {
-        if (live.online && live.state === 'charging') {
+        if (live.online && onCharger(live)) {
           a.status = 'charging';
           a.since = now;
           a.sessionId = await this.startSession(robot.id, charger.id, 'auto', live.battery);
           await this.redis.hset(ASSIGN, robot.id, JSON.stringify(a));
+          await this.resetFails(robot.id);
           this.log.log(`${robot.code} 在 ${charger.code} 開始充電（${live.battery.toFixed(0)}%）`);
         } else if (a.failed || !live.online || now - a.since > HEADING_TIMEOUT_MS || ['idle', 'estop'].includes(live.state) && now - a.since > 20_000) {
-          // 指令失敗、離線、逾時、或被使用者停下：釋放樁，仍需充電的話下一輪重新觸發
-          this.log.warn(`${robot.code} 前往 ${charger.code} 未完成，釋放充電樁`);
+          // 指令失敗、離線、逾時、或被使用者停下：釋放樁，仍需充電的話下一輪重新觸發；連續失敗 3 次就停止重送並告警
+          const fails = await this.redis.hincrby(FAILS, robot.id, 1);
+          this.log.warn(`${robot.code} 前往 ${charger.code} 未完成（連續第 ${fails} 次），釋放充電樁`);
           await this.release(robot.id, a);
+          if (fails >= MAX_CHARGE_FAILS && !this.alerted.has(`fail:${robot.id}`)) {
+            this.alerted.add(`fail:${robot.id}`);
+            this.log.warn(`${robot.code} 連續 ${fails} 次回充失敗，停止自動重送`);
+            this.alerts$.next({ type: 'charge_failed', robot, battery: live.battery, fails, at: now });
+          }
         }
         continue;
       }
-      if (live.state !== 'charging') {
+      if (!onCharger(live)) {
         // 離開充電樁（讓位、被派任務、使用者移動）
         await this.release(robot.id, a, live.battery);
         this.log.log(`${robot.code} 離開 ${charger.code}（${live.battery.toFixed(0)}%）`);
@@ -297,7 +368,8 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
           a.status = 'leaving';
           a.since = now;
           await this.redis.hset(ASSIGN, robot.id, JSON.stringify(a));
-          const wp = waitPoint(charger, await this.floorSize(robot.floor), 1);
+          // 不走排隊那條線：開到待命點，沒有就從側向退出
+          const wp = yieldPoint(charger, await this.floorSize(robot.floor), await this.parking(robot.floor));
           this.log.log(`${robot.code} 充到 ${live.battery.toFixed(0)}%，離開 ${charger.code} 讓位`);
           await this.bus.send(robot, 'navigate', wp, null).catch((e) => this.log.warn(`讓位指令失敗：${e}`));
         }
@@ -315,7 +387,7 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
       for (const id of ids) {
         const robot = this.registry.all().find((r) => r.id === id);
         const live = robot && this.fleet.get(robot.code);
-        if (!robot || !live || occupiedRobots.has(id) || live.state === 'charging') {
+        if (!robot || !live || occupiedRobots.has(id) || onCharger(live)) {
           // 被停用、被派了任務、或已經在充電（例如人工放上去）：移出佇列
           await this.redis.zrem(queueKey(floor), id);
           continue;
@@ -361,14 +433,26 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
       view.teleopLocked = !!(await this.lock.holder(robot.code));
       if (!this.fleet.get(robot.code) || !needsCharge(view, s)) {
         this.alerted.delete(`queue:${robot.id}`);
+        // 已經充上電（例如人員手動放上樁）或電量回到門檻以上：失敗次數歸零
+        if (this.fleet.get(robot.code) && (view.charging || view.battery > s.returnAt)) await this.resetFails(robot.id);
         continue;
       }
       if (!chargers.some((c) => compatible(robot, c))) continue;
+      if (Number(await this.redis.hget(FAILS, robot.id)) >= MAX_CHARGE_FAILS) continue; // 已停止自動重送，等人員處理
       this.log.log(`${robot.code} 電量 ${view.battery.toFixed(0)}% ≤ ${s.returnAt}%，自動回充`);
       await this.requestLocked(robot, 'auto', null).catch((e) => this.log.warn(`${robot.code} 回充失敗：${e instanceof Error ? e.message : e}`));
     }
 
     await this.emitAll();
+  }
+
+  private async resetFails(robotId: string) {
+    if (await this.redis.hdel(FAILS, robotId)) this.alerted.delete(`fail:${robotId}`);
+  }
+
+  /** 同樓層的待命點（POI kind=parking） */
+  private async parking(floor: string): Promise<{ x: number; y: number }[]> {
+    return this.db.selectFrom('pois').select(['x', 'y']).where('floor_id', '=', floor).where('kind', '=', 'parking').execute();
   }
 
   private async markFailed(robotId: string, cmdId: string) {
@@ -472,6 +556,7 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
       online: !!live?.online,
       state: live?.state ?? 'offline',
       battery: live?.battery ?? 0,
+      charging: !!live?.charging,
       x: live?.x ?? 0,
       y: live?.y ?? 0,
       teleopLocked: false,
@@ -520,7 +605,10 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
     try {
       return await fn();
     } finally {
-      await this.redis.eval(RELEASE, 1, LOCK, token);
+      // 關閉中 Redis 可能已斷線：鎖有 TTL，放不掉也會自己過期
+      await this.redis.eval(RELEASE, 1, LOCK, token).catch((e) => {
+        if (!this.closing) throw e;
+      });
     }
   }
 }

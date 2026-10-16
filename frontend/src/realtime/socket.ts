@@ -1,10 +1,12 @@
 import { io, type Socket } from 'socket.io-client';
 import { getToken, refresh } from '../api/session';
 import { t } from '../i18n';
+import { type AlarmNew, type AlarmUpdated, useAlarms } from '../stores/alarms';
 import { type ChargingFloor, useCharging } from '../stores/charging';
 import { type CmdResult, type RobotLive, type Stats, useRealtime } from '../stores/realtime';
 import { type Task, useTasks } from '../stores/tasks';
 import { useToast } from '../stores/toast';
+import { playAlarm } from './sound';
 
 let socket: Socket | null = null;
 let unwatch: (() => void) | null = null;
@@ -56,6 +58,9 @@ export function connectRealtime(): void {
   socket.on('stats.tick', (m: Stats) => useRealtime.getState().setStats(m));
   socket.on('task.updated', (m: Task) => useTasks.getState().update(m));
   socket.on('charger.updated', (m: ChargingFloor) => useCharging.getState().update(m));
+  // 告警：依告警設置響鈴、彈窗（一級預設彈窗＋響鈴）
+  socket.on('alarm.new', onAlarmNew);
+  socket.on('alarm.updated', (m: AlarmUpdated) => useAlarms.getState().update(m));
   socket.on('teleop.revoked', (m: { code: string; by: string; reason: 'takeover' | 'estop' }) =>
     useToast
       .getState()
@@ -69,6 +74,12 @@ export function connectRealtime(): void {
       void resubscribe();
     }
   });
+}
+
+/** alarm.new：加入告警日誌與彈窗佇列；告警設置開了「音效提醒」就響鈴 */
+export function onAlarmNew(m: AlarmNew): void {
+  useAlarms.getState().add(m);
+  if (m.notify.sound) playAlarm(m.alarm.level);
 }
 
 async function reauth() {
@@ -88,6 +99,7 @@ export function disconnectRealtime(): void {
   socket?.disconnect();
   socket = null;
   useRealtime.getState().clear();
+  useAlarms.getState().clear();
 }
 
 /** 遙控速度（實時遙控頁 T-30 使用）：每 100 ms 一筆 */

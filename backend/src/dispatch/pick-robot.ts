@@ -13,6 +13,8 @@ export interface Candidate {
   enabled: boolean;
   state: string;
   battery: number;
+  /** 遙測 battery.charging：真機上樁後 state 可能仍是 idle，要靠這個判斷在樁上 */
+  charging?: boolean;
   x: number;
   y: number;
   caps: string[];
@@ -43,9 +45,11 @@ export interface PickSettings {
   resumeAt?: number;
 }
 
-/** 待命，或在充電樁上已充到 resumeAt */
+/** 待命，或在充電樁上已充到 resumeAt（在樁上 = state charging 或 charging=true） */
 function available(r: Candidate, s: PickSettings): boolean {
-  return r.state === 'idle' || (r.state === 'charging' && s.resumeAt !== undefined && r.battery >= s.resumeAt);
+  const docked = r.state === 'charging' || !!r.charging;
+  if (!docked) return r.state === 'idle';
+  return (r.state === 'idle' || r.state === 'charging') && s.resumeAt !== undefined && r.battery >= s.resumeAt;
 }
 
 export function eligible(r: Candidate, task: QueuedTask, s: PickSettings): boolean {
