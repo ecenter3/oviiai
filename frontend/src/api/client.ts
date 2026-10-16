@@ -26,6 +26,21 @@ export async function download(path: string, filename: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+/**
+ * 需要登入才能讀的圖片（例：平面圖 /api/v1/floors/:id/plan）：帶 token 取回，轉成 blob: 網址給 <img>／<image> 用。
+ * 同一網址只取一次（網址帶版本，內容不變）。
+ */
+const blobs = new Map<string, Promise<string>>();
+export function authedObjectUrl(url: string): Promise<string> {
+  let p = blobs.get(url);
+  if (!p) {
+    p = request(url.replace(/^\/api\/v1/, '')).then(async (r) => URL.createObjectURL(await r.blob()));
+    p.catch(() => blobs.delete(url));
+    blobs.set(url, p);
+  }
+  return p;
+}
+
 async function request(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const { json, ...rest } = init;
   const send = (token: string | null) => {
