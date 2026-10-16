@@ -81,6 +81,24 @@ describe('OpLogInterceptor', () => {
 });
 
 describe('summarize', () => {
+  it('網址裡的帳密一律遮蔽，不論欄位名稱（PR #10 審查第 1 點）', () => {
+    const r = summarize({
+      rtspUrl: 'rtsp://admin:cam-secret@10.0.0.20/stream1',
+      note: '改用 rtsp://viewer:p%40ss@10.0.0.21:554/s 與 http://u:pw@host/x',
+      list: ['https://onlyuser@h/', 'rtsp://10.0.0.22/no-auth'],
+      endpoint: 'mqtt://bk:secret-pw@broker:1883',
+    }) as Record<string, unknown>;
+    expect(r.rtspUrl).toBe('***');
+    expect(r.endpoint).toBe('mqtt://***:***@broker:1883');
+    expect(r.note).toBe('改用 rtsp://***:***@10.0.0.21:554/s 與 http://***:***@host/x');
+    expect(r.list).toEqual(['https://***:***@h/', 'rtsp://10.0.0.22/no-auth']);
+    expect(JSON.stringify(r)).not.toMatch(/cam-secret|p%40ss|pw@|secret-pw|onlyuser/);
+  });
+
+  it('欄位名稱含 url、rtsp 的整個遮掉', () => {
+    expect(summarize({ planUrl: 'x', rtsp: 'y', name: 'ok' })).toEqual({ planUrl: '***', rtsp: '***', name: 'ok' });
+  });
+
   it('過長的內容只留前段', () => {
     const r = summarize({ text: 'x'.repeat(5000) }) as { truncated: boolean; preview: string };
     expect(r.truncated).toBe(true);

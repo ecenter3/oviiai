@@ -17,3 +17,19 @@ export function bullConnection(): ConnectionOptions {
 }
 
 export const bullPrefix = () => process.env.BULL_PREFIX || 'rms';
+
+/**
+ * 關閉 worker 與 queue，最多等 graceMs：正在跑的工作有機會做完，但關機不會被卡住
+ * （docker stop、測試結束時）。逾時就強制關閉，沒做完的工作下次啟動由 BullMQ 重新處理。
+ */
+export async function closeBull(worker: { close(force?: boolean): Promise<void> } | undefined, queue: { close(): Promise<void> } | undefined, graceMs = 3_000): Promise<void> {
+  if (worker) {
+    let timer: NodeJS.Timeout | undefined;
+    const graceful = worker.close().then(() => true);
+    const timeout = new Promise<boolean>((r) => (timer = setTimeout(() => r(false), graceMs)));
+    const ok = await Promise.race([graceful, timeout]);
+    clearTimeout(timer);
+    if (!ok) await worker.close(true).catch(() => undefined);
+  }
+  await queue?.close().catch(() => undefined);
+}

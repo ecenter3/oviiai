@@ -33,3 +33,32 @@ def test_noisy_points_report_rmse():
 def test_needs_three_points():
     with pytest.raises(ValueError):
         fit([(0, 0), (1, 1)], [(0, 0), (1, 1)])
+
+
+def test_fit_matches_shared_calibration_fixture():
+    """與後端 calibration/affine.ts 讀同一份 fixtures/calibration.json（兩邊算出同樣的矩陣與 RMSE）"""
+    import json
+    from pathlib import Path
+
+    from common.transform import fit as _fit
+
+    data = json.loads((Path(__file__).resolve().parents[2] / "packages/contracts/fixtures/calibration.json").read_text(encoding="utf-8"))
+    for case in data["cases"]:
+        pts = case["points"]
+        tf, rmse = _fit([(p["u"], p["v"]) for p in pts], [(p["x"], p["y"]) for p in pts])
+        got = [tf.a, tf.b, tf.tx, tf.c, tf.d, tf.ty]
+        assert all(abs(g - e) < 1e-4 for g, e in zip(got, case["matrix"])), case["name"]
+        assert abs(rmse - case["rmseM"]) < 1e-3, case["name"]
+
+
+def test_to_robot_from_backend_calib_is_inverse_of_matrix():
+    from common.transform import Affine2D as A
+
+    calib = {"mapId": "b1", "matrix": [0.866025, -0.5, 12, 0.5, 0.866025, -4]}
+    to_robot = A.to_robot_from_calib(calib)
+    to_platform = to_robot.inverse()
+    x, y = to_platform.apply(7, -3)  # 機器人 (7,-3) → 平台
+    assert abs(x - (0.866025 * 7 + 0.5 * 3 + 12)) < 1e-6
+    u, v = to_robot.apply(x, y)
+    assert abs(u - 7) < 1e-6 and abs(v + 3) < 1e-6
+    assert A.to_robot_from_calib(None) == A()

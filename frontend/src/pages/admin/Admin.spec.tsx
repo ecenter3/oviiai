@@ -123,6 +123,7 @@ describe('地圖管理（T-25）', () => {
     if (url.endsWith('/floors')) return FLOORS;
     if (url.includes('/chargers?floor=1f')) return [{ id: 'c1', code: 'CHG-1F-1', floorId: '1f', x: 1, y: 1, brand: 'unitree', enabled: true, robotDock: { id: 'dock-1' }, occupiedBy: { robotId: 'r1', code: 'B2-001' } }];
     if (url.includes('/cameras?floor=1f')) return [{ id: 'k1', code: 'CAM-1F-01', name: '1F 大門', floorId: '1f', x: 4, y: 32, enabled: true, hasRtsp: true }];
+    if (url.includes('/calibrations?floor=1f')) return [{ robotId: 'r1', code: 'B2-001', brand: 'unitree', model: 'B2', online: true, calib: { mapId: '1f-v2', rmseM: 0.18, points: 4, updatedAt: '2026-10-16T02:00:00Z' } }];
     if (url.includes('?floor=b1')) return [];
     return { ok: true };
   };
@@ -132,6 +133,7 @@ describe('地圖管理（T-25）', () => {
     expect(await screen.findByText('使用中（B2-001）')).toBeTruthy();
     expect(screen.getByText('1F 大門')).toBeTruthy();
     expect(screen.getByText('已設定')).toBeTruthy();
+    expect(screen.getByText('RMSE 0.18 m · 4 點')).toBeTruthy();
 
     const input = screen.getByLabelText('上傳平面圖') as HTMLInputElement;
     const f = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'plan.png', { type: 'image/png' });

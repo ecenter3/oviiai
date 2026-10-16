@@ -79,6 +79,15 @@ export class PatrolController {
     );
   }
 
+  /** 排程表單的選項：該樓層啟用中的機器人（只有 nav 權限的帳號不能呼叫 GET /robots） */
+  @Get('options')
+  @RequireAnyPerm('nav', 'dispatch')
+  async options(@Query(new ZodPipe(Q)) q: z.infer<typeof Q>) {
+    let query = this.db.selectFrom('robots').select(['id', 'code', 'floor_id']).where('enabled', '=', true).orderBy('code');
+    if (q.floor) query = query.where('floor_id', '=', q.floor);
+    return { robots: (await query.execute()).map((r) => ({ id: r.id, code: r.code, floorId: r.floor_id })) };
+  }
+
   @Post()
   @RequirePerm('nav')
   @OpLog('patrol.create', target)

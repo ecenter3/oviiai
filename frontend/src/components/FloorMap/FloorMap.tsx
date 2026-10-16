@@ -55,11 +55,34 @@ export interface MapPath {
   id: string;
   points: Pt[];
   color?: string;
+  /** 外觀：sel 選取中、faint 淡化、draft 編輯中 */
+  tone?: 'sel' | 'faint' | 'draft';
 }
 export interface MapZone {
   id: string;
   kind: 'forbidden' | 'slow' | 'silent';
   polygon: Pt[];
+  name?: string;
+  /** 編輯中：不足 3 點時畫折線 */
+  draft?: boolean;
+}
+/** 興趣點；kind=parking 為待命點 */
+export interface MapPoi {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  kind: 'poi' | 'parking';
+  selected?: boolean;
+}
+/** 編號標記（路徑航點、校正點） */
+export interface MapMark {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+  tone?: 'ok' | 'warn' | 'bad' | 'draft';
+  title?: string;
 }
 export interface MapAlarm {
   id: string;
@@ -80,6 +103,9 @@ export interface FloorMapProps {
   paths?: MapPath[];
   zones?: MapZone[];
   alarms?: MapAlarm[];
+  pois?: MapPoi[];
+  marks?: MapMark[];
+  onPoiClick?: (id: string) => void;
   selectedRobotId?: string | null;
   onRobotClick?: (id: string) => void;
   onCameraClick?: (id: string) => void;
@@ -117,6 +143,8 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
     paths = [],
     zones = [],
     alarms = [],
+    pois = [],
+    marks = [],
     selectedRobotId,
     pickMode,
     viewKey,
@@ -131,7 +159,7 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
 
   const floor: Size = useMemo(() => {
     if (props.widthM && props.heightM) return { w: props.widthM, h: props.heightM };
-    return estimateSize([...robots, ...cameras, ...chargers, ...alarms]);
+    return estimateSize([...robots, ...cameras, ...chargers, ...alarms, ...pois]);
     // 未設定尺寸時只在換樓層時估一次，避免機器人移動時整張圖一直縮放
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.widthM, props.heightM, viewKey]);
@@ -210,6 +238,13 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
     const d = drag.current;
     drag.current = null;
     if (!d || d.moved || !pickMode || !props.onPick) return;
+    // 點在興趣點上：吸附到該點的座標（畫路徑時常要經過興趣點）
+    const poiEl = (e.target as Element).closest?.('.fm-poi');
+    if (poiEl) {
+      const poi = pois.find((x) => x.id === poiEl.getAttribute('data-poi'));
+      if (poi) props.onPick({ x: poi.x, y: poi.y });
+      return;
+    }
     // 點在標記上是選取標記，不是取座標
     if ((e.target as Element).closest?.('.fm-robot, .fm-cam, .fm-dock')) return;
     const r = (e.currentTarget as Element).getBoundingClientRect();
@@ -247,11 +282,22 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
               ))}
             </g>
           )}
-          {zones.map((z) => (
-            <polygon key={z.id} className={`fm-zone ${z.kind}`} points={z.polygon.map(flipY).join(' ')} />
-          ))}
+          {zones.map((z) =>
+            z.draft && z.polygon.length < 3 ? (
+              <polyline key={z.id} className={`fm-zone ${z.kind} draft`} points={z.polygon.map(flipY).join(' ')} />
+            ) : (
+              <polygon key={z.id} className={`fm-zone ${z.kind}${z.draft ? ' draft' : ''}`} points={z.polygon.map(flipY).join(' ')}>
+                {z.name && <title>{z.name}</title>}
+              </polygon>
+            ),
+          )}
           {paths.map((p) => (
-            <polyline key={p.id} className="fm-path" points={p.points.map(flipY).join(' ')} style={p.color ? { stroke: p.color } : undefined} />
+            <polyline
+              key={p.id}
+              className={`fm-path${p.tone ? ` ${p.tone}` : ''}`}
+              points={p.points.map(flipY).join(' ')}
+              style={p.color ? { stroke: p.color } : undefined}
+            />
           ))}
         </g>
 
@@ -287,6 +333,39 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
               <title>{label}</title>
               <rect x={-11} y={-9} width={22} height={18} rx={3} />
               <text y={4}>⚡</text>
+            </g>
+          );
+        })}
+
+        {pois.map((p) => {
+          const s = sc(p);
+          return (
+            <g
+              key={p.id}
+              className={`fm-poi ${p.kind}${p.selected ? ' sel' : ''}`}
+              transform={`translate(${s.x} ${s.y})`}
+              role="button"
+              aria-label={p.name}
+              data-poi={p.id}
+              onClick={() => !pickMode && props.onPoiClick?.(p.id)}
+            >
+              <title>{p.name}</title>
+              {p.kind === 'parking' ? <rect x={-8} y={-8} width={16} height={16} rx={3} /> : <path d="M0,-9 L7,0 L0,9 L-7,0 Z" />}
+              {p.kind === 'parking' && <text y={4}>P</text>}
+              <text className="nm" y={20}>
+                {p.name}
+              </text>
+            </g>
+          );
+        })}
+
+        {marks.map((m) => {
+          const s = sc(m);
+          return (
+            <g key={m.id} className={`fm-mark ${m.tone ?? 'ok'}`} transform={`translate(${s.x} ${s.y})`}>
+              {m.title && <title>{m.title}</title>}
+              <circle r={9} />
+              <text y={3.5}>{m.label}</text>
             </g>
           );
         })}

@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
+import { sql } from 'kysely';
 import { CSV_BOM, csvRow, formatTaipei } from '../common/csv';
 import { KYSELY, type Database } from '../db/database.module';
-import { bullConnection, bullPrefix } from '../jobs/bull';
+import { bullConnection, bullPrefix, closeBull } from '../jobs/bull';
 import { StorageService } from '../storage/storage.service';
 
 const QUEUE = 'maintenance';
@@ -12,16 +13,20 @@ const DAILY = { pattern: '30 3 * * *', tz: 'Asia/Taipei' };
 const MAX_ROWS = 50_000;
 /** 已經結束、可以清的告警狀態（未處理、處理中的不清） */
 const FINAL = ['closed', 'false_alarm', 'info'];
+/** 已結束的任務狀態（排隊、執行中、暫停的不清） */
+const TASK_ENDED = ['done', 'cancelled', 'failed', 'rejected'];
 
 export interface RetentionResult {
   alarms: number;
   oplogs: number;
+  tasks: number;
   files: string[];
 }
 
 /**
- * 資料保存期限（工程開發手冊「資料庫」§7：告警、操作日誌 1 年；PR #9 審查第 4 點）。
- * 每日排程：超過 1 年的已結束告警（連同處理歷程）與操作日誌，先匯出 CSV 存到物件儲存 retention/ 備查，成功才刪除。
+ * 資料保存期限（工程開發手冊「資料庫」§7：任務、告警、操作日誌 1 年；PR #9 審查第 4 點、PR #10 審查第 6 點）。
+ * 每日排程：超過 1 年的已結束告警（連同處理歷程）、已結束任務（連同任務歷程）與操作日誌，
+ * 先匯出 CSV 存到物件儲存 retention/ 備查，成功才刪除。
  */
 @Injectable()
 export class RetentionService implements OnModuleInit, OnModuleDestroy {
@@ -43,8 +48,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    await this.worker?.close();
-    await this.queue?.close();
+    await closeBull(this.worker, this.queue);
   }
 
   /** 清除 now 往前 1 年以前的資料 */
@@ -87,6 +91,41 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       await this.db.deleteFrom('alarms').where('id', 'in', alarms.map((a) => a.id)).execute(); // alarm_events ON DELETE CASCADE
     }
 
+    // 任務＋任務歷程：以結束時間計（沒有結束時間的用建立時間）
+    const tasks = await this.db
+      .selectFrom('tasks as t')
+      .leftJoin('robots as r', 'r.id', 't.robot_id')
+      .select(['t.id', 't.code', 't.kind', 't.priority', 't.source', 't.floor_id', 't.status', 't.created_at', 't.started_at', 't.ended_at', 't.fail_reason', 't.note', 'r.code as robot_code'])
+      .where('t.status', 'in', TASK_ENDED)
+      .where((eb) => eb(eb.fn.coalesce('t.ended_at', 't.created_at'), '<', cutoff))
+      .orderBy('t.created_at')
+      .limit(MAX_ROWS)
+      .execute();
+    if (tasks.length) {
+      const ids = tasks.map((t) => t.id);
+      const events = await this.db.selectFrom('task_events').select(['task_id', 'at', 'type', 'data']).where('task_id', 'in', ids).orderBy('at').execute();
+      const byTask = new Map<string, string[]>();
+      for (const e of events) {
+        const l = byTask.get(e.task_id) ?? [];
+        l.push(`${formatTaipei(e.at)} ${e.type}${e.data ? ` ${JSON.stringify(e.data)}` : ''}`);
+        byTask.set(e.task_id, l);
+      }
+      const fmt = (d: Date | null) => (d ? formatTaipei(d) : '');
+      let csv = CSV_BOM + csvRow(['編號', '類型', '優先級', '來源', '樓層', '機器人', '狀態', '建立時間', '開始時間', '結束時間', '失敗原因', '備註', '任務歷程']);
+      for (const t of tasks) {
+        csv += csvRow([t.code, t.kind, t.priority, t.source, t.floor_id, t.robot_code, t.status, fmt(t.created_at), fmt(t.started_at), fmt(t.ended_at), t.fail_reason, t.note, (byTask.get(t.id) ?? []).join(' | ')]);
+      }
+      const key = `retention/tasks-${stamp}-${Date.now()}.csv`;
+      await this.storage.put(key, csv, 'text/csv; charset=utf-8');
+      files.push(key);
+      await this.db.transaction().execute(async (trx) => {
+        // 其他資料對這些任務的參照先斷開（被插隊的任務記著 P1、媒體記著任務）
+        await trx.updateTable('tasks').set({ preempted_by: null }).where('preempted_by', 'in', ids).execute();
+        await sql`UPDATE media SET task_id = NULL WHERE task_id = ANY(${ids}::uuid[])`.execute(trx);
+        await trx.deleteFrom('tasks').where('id', 'in', ids).execute(); // task_events ON DELETE CASCADE；巡邏排程 last_task_id SET NULL
+      });
+    }
+
     // 操作日誌
     const logs = await this.db.selectFrom('op_logs').selectAll().where('at', '<', cutoff).orderBy('at').limit(MAX_ROWS).execute();
     if (logs.length) {
@@ -98,7 +137,9 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       await this.db.deleteFrom('op_logs').where('id', 'in', logs.map((l) => l.id)).execute();
     }
 
-    if (alarms.length || logs.length) this.log.log(`清除超過 1 年的告警 ${alarms.length} 筆、操作日誌 ${logs.length} 筆，備查檔：${files.join('、')}`);
-    return { alarms: alarms.length, oplogs: logs.length, files };
+    if (alarms.length || logs.length || tasks.length) {
+      this.log.log(`清除超過 1 年的告警 ${alarms.length} 筆、任務 ${tasks.length} 筆、操作日誌 ${logs.length} 筆，備查檔：${files.join('、')}`);
+    }
+    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, files };
   }
 }
