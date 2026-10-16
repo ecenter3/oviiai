@@ -111,3 +111,42 @@ describe('FloorMap', () => {
     expect(container.querySelector('.fm-zone.forbidden')?.getAttribute('points')).toBe('1,19 3,19 3,17');
   });
 });
+
+describe('興趣點與編號標記（T-24）', () => {
+  const pois = [
+    { id: 'p1', name: '大門', x: 3, y: 4, kind: 'poi' as const },
+    { id: 'p2', name: '待命區', x: 20, y: 10, kind: 'parking' as const, selected: true },
+  ];
+
+  it('畫出興趣點與待命點（P）；點選呼叫 onPoiClick', () => {
+    const onPoiClick = vi.fn();
+    const { container } = render(<FloorMap widthM={W} heightM={H} pois={pois} onPoiClick={onPoiClick} />);
+    expect(container.querySelector('.fm-poi.parking.sel text')?.textContent).toBe('P');
+    fireEvent.click(screen.getByRole('button', { name: '大門' }));
+    expect(onPoiClick).toHaveBeenCalledWith('p1');
+  });
+
+  it('取座標模式點在興趣點上：吸附到興趣點的座標', () => {
+    const onPick = vi.fn();
+    render(<FloorMap widthM={W} heightM={H} pois={pois} pickMode onPick={onPick} />);
+    const el = screen.getByRole('button', { name: '待命區' });
+    fireEvent.pointerDown(el, { button: 0, pointerId: 1, clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(el, { button: 0, pointerId: 1, clientX: 5, clientY: 5 });
+    expect(onPick).toHaveBeenCalledWith({ x: 20, y: 10 });
+  });
+
+  it('編號標記與草稿路徑、區域', () => {
+    const { container } = render(
+      <FloorMap
+        widthM={W}
+        heightM={H}
+        marks={[{ id: 'm1', x: 1, y: 1, label: '1', tone: 'bad' }]}
+        paths={[{ id: 'd', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], tone: 'draft' }]}
+        zones={[{ id: 'z', kind: 'forbidden', polygon: [{ x: 0, y: 0 }, { x: 2, y: 0 }], draft: true }]}
+      />,
+    );
+    expect(container.querySelector('.fm-mark.bad text')?.textContent).toBe('1');
+    expect(container.querySelector('.fm-path.draft')).toBeTruthy();
+    expect(container.querySelector('polyline.fm-zone.draft')).toBeTruthy();
+  });
+});

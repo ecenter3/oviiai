@@ -137,6 +137,20 @@ input, select { padding: 7px 10px; border-radius: 5px; border: 1px solid var(--l
 .fm-zone.slow { fill: rgba(245,158,11,.12); stroke: rgba(245,158,11,.5); }
 .fm-zone.silent { fill: rgba(167,139,250,.12); stroke: rgba(167,139,250,.5); }
 .fm-path { fill: none; stroke: var(--accent-2); stroke-width: 2px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.fm-path.sel { stroke: #4fd8ff; stroke-width: 3px; stroke-dasharray: none; }
+.fm-path.faint { opacity: .35; }
+.fm-path.draft { stroke: var(--warn); stroke-width: 2.5px; stroke-dasharray: 4 3; }
+.fm-zone.draft { stroke-dasharray: 4 3; stroke-width: 2px; }
+.fm-poi { cursor: pointer; }
+.fm-poi path, .fm-poi rect { fill: #3b82f6; stroke: #dbeafe; stroke-width: 1.5; }
+.fm-poi.parking rect { fill: #0ea5e9; }
+.fm-poi.sel path, .fm-poi.sel rect { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 4px rgba(79,216,255,.8)); }
+.fm-poi text { font: 700 10px var(--font-body); text-anchor: middle; fill: #fff; pointer-events: none; }
+.fm-poi text.nm { font-weight: 500; fill: var(--fg); paint-order: stroke; stroke: rgba(8,17,29,.85); stroke-width: 3px; }
+.fm-mark circle { fill: #19b4ff; stroke: #fff; stroke-width: 1.5; }
+.fm-mark.warn circle { fill: var(--warn); } .fm-mark.bad circle { fill: var(--crit); } .fm-mark.draft circle { fill: #f59e0b; stroke-dasharray: 2 2; }
+.fm-mark text { font: 700 10px var(--font-data); text-anchor: middle; fill: #04121f; pointer-events: none; }
+.fm-mark.bad text { fill: #fff; }
 .fm-cam { cursor: pointer; } .fm-cam path { fill: #2f8f3a; stroke: #0a3d12; stroke-width: 1; }
 .fm-cam:hover path { fill: #46b553; }
 .fm-dock { cursor: pointer; }
@@ -504,3 +518,67 @@ fieldset.contents { display: contents; border: 0; }
 .maps-stage.picking { border-color: var(--warn); }
 .pick-tip { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); padding: 4px 12px; border-radius: 12px; background: rgba(245,158,11,.9); color: #1a1205; font-size: 12px; font-weight: 700; pointer-events: none; }
 .fl > label { display: flex; flex-direction: column; gap: 6px; }
+
+/* ===== 導航管理（T-24，原型 .navp） ===== */
+.navp { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 10px; padding: 10px 16px; }
+.navmap { position: relative; }
+.navmap .stage { position: relative; flex: 1; min-height: 0; }
+.nav-tools { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.nav-tools .push-left { flex: 1; }
+.pbtn { padding: 5px 12px; border-radius: 15px; border: 1px solid rgba(25,180,255,.5); background: var(--card); color: var(--accent-2); font-size: 12px; cursor: pointer; }
+.pbtn.on { background: var(--accent); color: #04121f; font-weight: 700; }
+.mode-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 6px; background: rgba(12,40,66,.95); border: 1px solid var(--accent); font-size: 13px; }
+.map-name { position: absolute; left: 12px; bottom: 10px; z-index: 6; padding: 4px 10px; border-radius: 4px; background: rgba(8,17,29,.88); color: var(--fg-2); font-size: 12px; pointer-events: none; }
+.navside .panel-head .xbtn { margin: -6px -6px -6px 0; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-2); font-size: 18px; cursor: pointer; }
+.navside .panel-head .xbtn:hover { background: var(--card-hi); }
+.nmenu { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.nm { position: relative; padding: 13px; border-radius: 6px; border: 1px solid rgba(25,180,255,.35); background: linear-gradient(180deg, #12294a, #0d1d33); color: var(--fg); font-size: 14px; text-align: center; cursor: pointer; }
+.nm:hover:not(:disabled) { border-color: var(--accent); }
+.nm:disabled { opacity: .55; cursor: default; }
+.nm small { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); padding: 1px 6px; border-radius: 8px; background: rgba(167,139,250,.15); color: var(--review); font-size: 10px; }
+.nsec { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.nsec .empty { padding: 4px 2px; }
+.nsec .seg2.wide { display: grid; grid-template-columns: repeat(3, 1fr); }
+.bluebtn { padding: 9px; border: 0; border-radius: 4px; background: #1d6ff2; color: #fff; font-size: 13px; cursor: pointer; }
+.bluebtn:hover:not(:disabled) { background: #3b82f6; }
+.bluebtn:disabled { opacity: .5; cursor: default; }
+.litem { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 10px; border-radius: 5px; border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--card); cursor: pointer; }
+.litem.sel { border-color: var(--accent); background: var(--card-hi); }
+.litem.zl-forbidden { border-left-color: #ef4444; } .litem.zl-slow { border-left-color: #f59e0b; } .litem.zl-silent { border-left-color: #a78bfa; }
+.litem .nm2 { flex: 1; min-width: 0; }
+.litem strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.litem .nm2 span { display: block; margin-top: 2px; font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib { flex-shrink: 0; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(25,180,255,.5); background: #0f2742; color: var(--accent-2); font-size: 11px; cursor: pointer; }
+.ib:hover { background: #163a60; }
+.ib.del { border-color: rgba(239,68,68,.5); color: #ff8a8a; }
+.ib.confirm { width: auto; padding: 0 8px; border-radius: 14px; border-color: var(--crit); background: var(--crit); color: #fff; }
+.box { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 6px; border: 1px dashed rgba(25,180,255,.5); background: rgba(25,180,255,.06); font-size: 12px; color: var(--fg-2); }
+.box b { color: var(--fg); font-size: 13px; }
+.box label { display: flex; flex-direction: column; gap: 4px; }
+.box input, .box select { width: 100%; padding: 7px 9px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font-size: 12px; }
+.box .r { display: flex; flex-wrap: wrap; gap: 6px; }
+.box .r2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 1100px) {
+  .navp { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .navmap { height: 70vh; }
+}
+
+/* ===== 座標校正精靈（T-26） ===== */
+.calib-wizard { width: min(1180px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+.cw-body { display: grid; grid-template-columns: minmax(0, 1fr) 540px; gap: 14px; }
+.cw-map { position: relative; height: 460px; border-radius: 6px; border: 1px solid var(--line); overflow: hidden; }
+.cw-map.picking { border-color: var(--warn); }
+.cw-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cw-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cw-table th { padding: 6px; text-align: left; color: var(--fg-3); font-weight: 500; border-bottom: 1px solid var(--line); }
+.cw-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.cw-table td.bad { color: #fca5a5; font-weight: 700; }
+.cw-table .uv { display: flex; gap: 4px; align-items: center; }
+.cw-table .uv .mini { white-space: nowrap; }
+.cw-table .uv input { width: 70px; padding: 5px 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font-family: var(--font-data); font-size: 12px; }
+.cw-table .obtn.on { background: var(--warn); border-color: var(--warn); color: #1a1205; }
+.cw-result { padding: 9px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); font-size: 13px; color: var(--fg-2); }
+.cw-result.ok { border-color: rgba(34,197,94,.5); color: #86efac; background: rgba(34,197,94,.08); }
+.cw-result.bad { border-color: rgba(239,68,68,.55); color: #fca5a5; background: rgba(239,68,68,.08); }
+.modal .row .push-right { margin-right: auto; }
+@media (max-width: 1100px) { .cw-body { grid-template-columns: minmax(0, 1fr); } }

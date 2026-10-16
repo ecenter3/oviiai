@@ -5,6 +5,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { FloorMap } from '../../components/FloorMap/FloorMap';
 import { t, type MessageKey } from '../../i18n';
 import { useToast } from '../../stores/toast';
+import { type CalibRow, CalibrationWizard } from './CalibrationWizard';
 import { BRANDS } from './RobotAdminPage';
 
 interface Floor {
@@ -88,6 +89,12 @@ export function MapsPage() {
     queryFn: () => api<Camera[]>(`/cameras?floor=${fid}`),
     enabled: !!fid,
   });
+  const calibs = useQuery({
+    queryKey: ['calibrations', fid],
+    queryFn: () => api<CalibRow[]>(`/calibrations?floor=${fid}`),
+    enabled: !!fid,
+  });
+  const [calibrating, setCalibrating] = useState<CalibRow | null>(null);
 
   const [size, setSize] = useState({ w: '', h: '', quota: '' });
   const [point, setPoint] = useState<PointForm>(() => emptyPoint('charger'));
@@ -457,6 +464,49 @@ export function MapsPage() {
                 </tbody>
               </table>
             </div>
+
+            <h3 className="sub-h">{t('calib.section', { n: calibs.data?.length ?? 0 })}</h3>
+            <div className="tbl-wrap">
+              <table className="dtbl">
+                <thead>
+                  <tr>
+                    <th>{t('robotmgr.col.code')}</th>
+                    <th>{t('robotmgr.col.model')}</th>
+                    <th>{t('calib.mapId')}</th>
+                    <th>{t('calib.rmse')}</th>
+                    <th>{t('calib.updated')}</th>
+                    <th>{t('alarm.col.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(calibs.data ?? []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="tbl-empty">
+                        {t('maps.empty')}
+                      </td>
+                    </tr>
+                  )}
+                  {calibs.data?.map((c) => (
+                    <tr key={c.robotId} data-calib={c.code}>
+                      <td className="mono">{c.code}</td>
+                      <td>
+                        {t(`brand.${c.brand}` as MessageKey)} {c.model}
+                      </td>
+                      <td className="mono">{c.calib?.mapId ?? '—'}</td>
+                      <td>
+                        {c.calib ? <span className="badge2 ok">{t('calib.rmseValue', { rmse: c.calib.rmseM, n: c.calib.points })}</span> : <span className="badge2 unreg">{t('calib.none')}</span>}
+                      </td>
+                      <td className="mono">{c.calib ? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei' }).format(new Date(c.calib.updatedAt)) : '—'}</td>
+                      <td>
+                        <button type="button" className="obtn" onClick={() => setCalibrating(c)}>
+                          {t('calib.start')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -646,10 +696,13 @@ export function MapsPage() {
               {point.id ? t('common.save') : t(point.kind === 'charger' ? 'maps.point.addCharger' : 'maps.point.addCamera')}
             </button>
           </form>
-          <p className="hint">{t('maps.calib.todo')}</p>
+          <p className="hint">{t('calib.sideHint')}</p>
         </div>
       </aside>
 
+      {calibrating && floor && (
+        <CalibrationWizard robot={calibrating} group={calibs.data ?? []} floor={floor} onClose={() => setCalibrating(null)} />
+      )}
       {removing && (
         <ConfirmDialog
           title={t('maps.delete')}
