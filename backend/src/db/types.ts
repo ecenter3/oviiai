@@ -179,7 +179,29 @@ export interface AlarmsTable {
   occurred_at: Timestamp;
 }
 
+export interface ChargeSessionsTable {
+  id: Generated<string>;
+  robot_id: string;
+  charger_id: string | null;
+  mode: string;
+  started_at: ColumnType<Date, Date | string | undefined, Date | string>;
+  ended_at: Timestamp | null;
+  start_pct: number | null;
+  end_pct: number | null;
+}
+
+export interface TaskTemplatesTable {
+  id: Generated<string>;
+  name: string;
+  kind: string;
+  priority: string;
+  floor_id: string | null;
+  target: ColumnType<unknown, string | null, string | null>;
+}
+
 export interface DB {
+  task_templates: TaskTemplatesTable;
+  charge_sessions: ChargeSessionsTable;
   cameras: CamerasTable;
   chargers: ChargersTable;
   tasks: TasksTable;

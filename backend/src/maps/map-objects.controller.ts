@@ -24,6 +24,15 @@ export class MapObjectsController {
     return (await query.execute()).map((c) => ({ id: c.id, code: c.code, name: c.name, floorId: c.floor_id, x: c.x, y: c.y, enabled: c.enabled }));
   }
 
+  /** 興趣點（派工目的地、任務範本用）；新增修改是導航管理（T-23） */
+  @Get('pois')
+  @RequireAnyPerm('nav', 'dispatch', 'monitor')
+  async pois(@Query(new ZodPipe(FloorQuery)) q: z.infer<typeof FloorQuery>) {
+    let query = this.db.selectFrom('pois').select(['id', 'floor_id', 'name', 'x', 'y', 'yaw']).orderBy('floor_id').orderBy('name');
+    if (q.floor) query = query.where('floor_id', '=', q.floor);
+    return (await query.execute()).map((p) => ({ id: p.id, floorId: p.floor_id, name: p.name, x: p.x, y: p.y, yaw: p.yaw }));
+  }
+
   @Get('chargers')
   async chargers(@Query(new ZodPipe(FloorQuery)) q: z.infer<typeof FloorQuery>) {
     let query = this.db

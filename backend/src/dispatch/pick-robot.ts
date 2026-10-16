@@ -39,6 +39,13 @@ export interface QueuedTask {
 
 export interface PickSettings {
   minAccept: number;
+  /** 充電完成門檻：在樁上充到這個電量就視為可接任務（後端邏輯 §3：接任務時自動離樁） */
+  resumeAt?: number;
+}
+
+/** 待命，或在充電樁上已充到 resumeAt */
+function available(r: Candidate, s: PickSettings): boolean {
+  return r.state === 'idle' || (r.state === 'charging' && s.resumeAt !== undefined && r.battery >= s.resumeAt);
 }
 
 export function eligible(r: Candidate, task: QueuedTask, s: PickSettings): boolean {
@@ -46,7 +53,7 @@ export function eligible(r: Candidate, task: QueuedTask, s: PickSettings): boole
     r.floor === task.floorId &&
     r.online &&
     r.enabled &&
-    r.state === 'idle' &&
+    available(r, s) &&
     !r.teleopLocked &&
     !r.busy &&
     r.battery >= s.minAccept &&

@@ -10,7 +10,7 @@ import type { CommandBus } from './command-bus.service';
 import { CommandsService } from './commands.service';
 import type { TeleopHolder, TeleopLock } from './teleop-lock.service';
 
-const ROBOT: RobotInfo = { id: '11111111-1111-4111-8111-111111111111', code: 'B2-001', floor: '1f', adapter: 'mock', caps: ['ptz'] };
+const ROBOT: RobotInfo = { id: '11111111-1111-4111-8111-111111111111', code: 'B2-001', floor: '1f', adapter: 'mock', caps: ['ptz'], brand: 'unitree' };
 
 const user = (perms: string[], over: Partial<Principal> = {}): Principal => ({
   sub: 'u1',

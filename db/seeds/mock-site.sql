@@ -33,3 +33,25 @@ INSERT INTO cameras (code, name, floor_id, x, y, rtsp_url, stream_key) VALUES
  ('CAM-B1-01', 'B1 車道入口', 'b1', 38, 24, ''::bytea, 'mock-cam-b1-01'),
  ('CAM-B1-02', 'B1 電梯廳',   'b1', 20,  4, ''::bytea, 'mock-cam-b1-02')
 ON CONFLICT (code) DO NOTHING;
+
+-- 興趣點（派工目的地；新增修改是導航管理 T-23）。以樓層＋名稱判斷是否已存在
+INSERT INTO pois (floor_id, name, x, y)
+SELECT v.floor_id, v.name, v.x, v.y FROM (VALUES
+ ('1f', '大廳',     20.0, 32.0), ('1f', '會議室',   18.0,  8.0), ('1f', '機房',     35.0, 20.0), ('1f', '出口',      4.0, 34.0),
+ ('2f', '產線 A',   12.0, 18.0), ('2f', '倉儲區',   40.0, 12.0), ('2f', '配電室',   45.0, 25.0),
+ ('b1', '車道入口', 38.0, 24.0), ('b1', '電梯廳',   20.0,  4.0), ('b1', '水塔',      6.0, 20.0)
+) AS v(floor_id, name, x, y)
+WHERE NOT EXISTS (SELECT 1 FROM pois p WHERE p.floor_id = v.floor_id AND p.name = v.name);
+
+-- 任務範本（系統規格書 §5：日常巡檢、環境監測、安全巡查、設備檢查、氣體檢測）
+INSERT INTO task_templates (name, kind, priority, floor_id, target)
+SELECT v.name, v.kind, v.priority, v.floor_id, jsonb_build_object('poiId', p.id)
+FROM (VALUES
+ ('日常巡檢', 'inspect',   'P3', '1f', '大廳'),
+ ('環境監測', 'env',       'P3', '2f', '配電室'),
+ ('安全巡查', 'security',  'P2', 'b1', '車道入口'),
+ ('設備檢查', 'equipment', 'P3', '1f', '機房'),
+ ('氣體檢測', 'gas',       'P2', '2f', '倉儲區')
+) AS v(name, kind, priority, floor_id, poi)
+JOIN pois p ON p.floor_id = v.floor_id AND p.name = v.poi
+WHERE NOT EXISTS (SELECT 1 FROM task_templates t WHERE t.name = v.name);

@@ -28,11 +28,11 @@ export class RobotRegistry {
   async load(): Promise<void> {
     const rows = await this.db
       .selectFrom('robots')
-      .select(['id', 'code', 'floor_id', 'adapter', 'caps'])
+      .select(['id', 'code', 'floor_id', 'adapter', 'caps', 'brand'])
       .where('enabled', '=', true)
       .execute();
     const next = new Map<string, RobotInfo>(
-      rows.map((r) => [r.code, { id: r.id, code: r.code, floor: r.floor_id, adapter: r.adapter, caps: r.caps }]),
+      rows.map((r) => [r.code, { id: r.id, code: r.code, floor: r.floor_id, adapter: r.adapter, caps: r.caps, brand: r.brand }]),
     );
     const gone = [...this.byCode.values()].filter((r) => !next.has(r.code));
     this.byCode = next;

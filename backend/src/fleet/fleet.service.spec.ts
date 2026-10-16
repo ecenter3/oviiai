@@ -9,8 +9,8 @@ import type { TelemetryWriter } from './telemetry-writer';
 import type { FleetEvent, RobotInfo } from './types';
 
 const ROBOTS: RobotInfo[] = [
-  { id: '11111111-1111-4111-8111-111111111111', code: 'B2-001', floor: '1f', adapter: 'mock', caps: [] },
-  { id: '22222222-2222-4222-8222-222222222222', code: 'ANBOT-001', floor: 'b1', adapter: 'anbot', caps: [] },
+  { id: '11111111-1111-4111-8111-111111111111', code: 'B2-001', floor: '1f', adapter: 'mock', caps: [], brand: 'unitree' },
+  { id: '22222222-2222-4222-8222-222222222222', code: 'ANBOT-001', floor: 'b1', adapter: 'anbot', caps: [], brand: 'anbot' },
 ];
 
 function telemetry(over: Record<string, unknown> = {}) {
