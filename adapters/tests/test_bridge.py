@@ -243,3 +243,56 @@ async def test_set_params_reports_ignored_items(setup):
     await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
     done = next(m for t, m in b.sent if t.endswith("/ack") and m["status"] == "done")
     assert done["result"] == {"applied": ["walk.speed"], "ignored": ["walk.collide", "video.stream"]}
+
+
+# ---- 雙向對講（T-31）----
+def _pcm(seconds: float, amp: int) -> bytes:
+    import math
+    import struct
+    n = int(16000 * seconds)
+    return struct.pack(f"<{n}h", *(int(amp * math.sin(2 * math.pi * 440 * i / 16000)) for i in range(n)))
+
+
+async def test_mock_talk_records_seconds_and_level(setup):
+    """方案 A：模擬器不播放，收到音訊就記錄秒數與音量"""
+    _, d = setup
+    d.talk = {"seconds": 0, "bytes": 0, "peak_db": -90.0}
+    reader = asyncio.StreamReader()
+    reader.feed_data(_pcm(1.0, 3000) + _pcm(1.2, 16000))
+    reader.feed_eof()
+    await d.consume_talk(reader)
+    assert d.talk["seconds"] == 2  # 不滿 1 秒的尾巴不算
+    assert -10 < d.talk["peak_db"] < 0
+
+
+async def test_talk_start_stop_via_bridge(setup, monkeypatch):
+    b, d = setup
+    monkeypatch.setenv("FFMPEG_PATH", "")
+    monkeypatch.setattr("shutil.which", lambda _n: None)  # 沒有 ffmpeg：只記錄開始與結束
+    await b.on_message("rms/robot/B2-001/cmd", cmd("t1", "talk_start", url="rtsp://127.0.0.1:8554/talk/B2-001", user="talk", token="tok"))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    assert ("t1", "done", None) in b.acks() and d.talk is not None
+    await b.on_message("rms/robot/B2-001/cmd", cmd("t2", "talk_stop"))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    assert ("t2", "done", None) in b.acks() and d.talk is None
+    await b.on_message("rms/robot/B2-001/cmd", cmd("t3", "talk_start", url="rtsp://x/talk/B2-001"))
+    assert ("t3", "rejected", "BAD_ARGS") in b.acks()
+
+
+def test_talk_url_puts_token_in_userinfo_and_resolves_host():
+    from mock.driver import talk_url
+    u = talk_url("rtsp://localhost:8554/talk/B2-001", "talk", "a.b/c=")
+    assert u == "rtsp://talk:a.b%2Fc%3D@127.0.0.1:8554/talk/B2-001"
+
+
+async def test_mock_speak_text_and_audio(setup):
+    """方案 B：按鍵說話的音檔、文字語音都只記錄"""
+    import base64
+    b, d = setup
+    audio = {"mime": "audio/webm", "data": base64.b64encode(b"\x1a\x45\xdf\xa3" * 100).decode(), "durationMs": 2500}
+    await b.on_message("rms/robot/B2-001/cmd", cmd("s1", "speak", audio=audio))
+    await b.on_message("rms/robot/B2-001/cmd", cmd("s2", "speak", text="請離開管制區"))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    assert d.spoken == [{"kind": "audio", "mime": "audio/webm", "bytes": 400, "durationMs": 2500}, {"kind": "text", "text": "請離開管制區"}]
+    await b.on_message("rms/robot/B2-001/cmd", cmd("s3", "speak"))
+    assert ("s3", "rejected", "BAD_ARGS") in b.acks()

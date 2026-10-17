@@ -42,3 +42,12 @@ unitree_sdk2（C++、DDS）對 B2 提供：
   預設實作只有共通層的遙控限速（`walk.speed`）；**導航時的速度上限要品牌 driver 實作才會生效**。
   後端在儲存後與機器人上線時都會送（上線補送 30 秒內最多一次）。
 - 前端與後端依資料庫 `robots.caps`（機器人管理）顯示按鈕，請與轉接器的 `capabilities` 保持一致（例：沒有雲台就不要勾 `ptz`）。
+
+## 對講（所有轉接器；T-31）
+- 機器人能接收即時音訊串流 → 能力勾 `talk_live`（方案 A）：實作 `talk_start {url, user, token}` 與 `talk_stop`。
+  以 `rtsp://<user>:<token>@<url 的主機>/talk/<代碼>` 拉 Opus 音訊（主機名稱先解析成 IP，靜態編譯的 ffmpeg 自己解析會當掉），
+  解碼後送到機器人喇叭；推流的人掛斷時串流會結束，轉接器不要自動重連。參考 `mock/driver.py` 的 `_talk_rx`。
+- 機器人只能播放音檔 → 能力勾 `talk`（方案 B）：實作 `speak {audio: {mime, data(base64), durationMs}}`（也可能是 `{text}`），
+  瀏覽器錄的是 `audio/webm`（Opus）居多，SDK 不吃 webm 時用 ffmpeg 轉成機型要的格式。
+- 兩者都支援時只勾 `talk_live`（畫面優先用即時對講），或兩個都勾。
+

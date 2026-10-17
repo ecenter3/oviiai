@@ -3,7 +3,7 @@
   "enums": {
     "RobotState": ["idle", "navigating", "patrolling", "teleop", "returning", "charging", "paused", "estop", "fault", "offline"],
     "EventType": ["fault", "fault_cleared", "waypoint_reached", "goal_reached", "goal_failed", "charge_started", "charge_finished", "estop_pressed", "sos", "obstacle_blocked"],
-    "CommandType": ["navigate", "patrol", "stop", "pause", "resume", "estop", "estop_release", "charge", "ptz", "light", "snapshot", "record_start", "record_stop", "speak", "follow", "follow_stop", "set_params", "lift"],
+    "CommandType": ["navigate", "patrol", "stop", "pause", "resume", "estop", "estop_release", "charge", "ptz", "light", "snapshot", "record_start", "record_stop", "speak", "follow", "follow_stop", "set_params", "lift", "talk_start", "talk_stop"],
     "AckStatus": ["accepted", "rejected", "done", "failed"]
   },
   "messages": {
@@ -42,6 +42,9 @@
         {"cmdId": "c_8f2e", "ts": 1792053940785, "type": "set_params", "args": {"params": {"walk": {"speed": 0.6, "collide": "safe"}, "video": {}, "talk": {}, "ext": {}}}},
         {"cmdId": "c_8f2f", "ts": 1792053940785, "type": "ptz", "args": {"pan": -0.25, "tilt": 0.1, "zoom": 0}},
         {"cmdId": "c_8f30", "ts": 1792053940785, "type": "light", "args": {"on": true, "mode": "fill"}},
+        {"cmdId": "c_8f31", "ts": 1792053940785, "type": "talk_start", "args": {"url": "rtsp://10.0.0.5:8554/talk/B2-001", "user": "talk", "token": "eyJwIjoi.c2ln"}},
+        {"cmdId": "c_8f32", "ts": 1792053940785, "type": "talk_stop"},
+        {"cmdId": "c_8f33", "ts": 1792053940785, "type": "speak", "args": {"audio": {"mime": "audio/webm", "data": "GkXfow==", "durationMs": 1200}}},
         {"cmdId": "c_8f2c", "ts": 1792053940785, "type": "patrol", "args": {"points": [{"x": 1, "y": 2}], "loops": 2}, "timeoutSec": 600}
       ],
       "invalid": [
