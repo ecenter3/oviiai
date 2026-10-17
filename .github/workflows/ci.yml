@@ -67,6 +67,7 @@ jobs:
       JWT_SECRET: ci-only-secret-ci-only-secret-ci-only
       DATA_ENC_KEY: ci-only-data-key-ci-only-data-key-ci-only
       ADAPTER_KEY_MOCK: ci-only-adapter-key-0001
+      ADAPTER_ALLOWED_CIDRS: 127.0.0.1/32,::1/128
       REDIS_URL: redis://localhost:6379
       MQTT_URL: mqtt://localhost:1883
       COOKIE_SECURE: 'false'

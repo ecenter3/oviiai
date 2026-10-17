@@ -1,3 +1,4 @@
+import { CidrList } from './common/cidr';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -92,4 +93,20 @@ export function dataEncKey(nodeEnv = process.env.NODE_ENV): string {
 export function adapterKey(name: string): string | null {
   const k = process.env[`ADAPTER_KEY_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`];
   return k && k.length >= 16 ? k : null;
+}
+
+/**
+ * 可以取轉接器設定的來源網段（ADAPTER_ALLOWED_CIDRS，例 "10.20.0.0/24,127.0.0.1/32"；PR #11 審查第 1 點）。
+ * 回 null 表示不限制：只有非正式環境且沒設定時。正式環境沒設 → 空清單（一律拒絕）。
+ */
+let warnedCidrs = false;
+export function adapterAllowedCidrs(nodeEnv = process.env.NODE_ENV): CidrList | null {
+  const spec = process.env.ADAPTER_ALLOWED_CIDRS?.trim() ?? '';
+  if (spec) return new CidrList(spec);
+  if (nodeEnv === 'production') return new CidrList('');
+  if (!warnedCidrs) {
+    warnedCidrs = true;
+    console.warn('[警告] ADAPTER_ALLOWED_CIDRS 未設定，轉接器設定不限來源網段（非正式環境）');
+  }
+  return null;
 }
