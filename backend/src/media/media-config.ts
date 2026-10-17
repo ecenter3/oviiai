@@ -7,6 +7,8 @@ export const mediaConfig = () => ({
   api: (process.env.MEDIAMTX_API || 'http://localhost:9997').replace(/\/$/, ''),
   /** 後端抓拍、錄影從這裡讀 RTSP */
   rtsp: (process.env.MEDIAMTX_RTSP || 'rtsp://localhost:8554').replace(/\/$/, ''),
+  /** 轉接器拉對講音訊（T-31 方案 A）的 RTSP 位址：轉接器所在主機看得到的 MediaMTX；預設同 rtsp */
+  adapterRtsp: (process.env.MEDIA_ADAPTER_RTSP || process.env.MEDIAMTX_RTSP || 'rtsp://localhost:8554').replace(/\/$/, ''),
   /** 瀏覽器播放（WHEP）的位址：開發直連 8889，正式環境由 Nginx 轉 /media */
   publicUrl: (process.env.MEDIA_PUBLIC_URL || 'http://localhost:8889').replace(/\/$/, ''),
   /** 後端與測試影像源讀寫 MediaMTX 用的內部帳號（MediaMTX 回呼 /internal/media/auth 驗證） */

@@ -3,6 +3,7 @@ import { ALL_PERMS } from '@oviiai/contracts';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { sql } from 'kysely';
 import { createHash } from 'node:crypto';
+import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
 import { dataEncKey } from '../config';
 import { KYSELY, type Database } from '../db/database.module';
@@ -29,8 +30,18 @@ export interface Section {
   changes: Change[];
 }
 export type Entity = 'floors' | 'robots' | 'chargers' | 'cameras' | 'pois' | 'zones' | 'paths' | 'patrolSchedules' | 'taskTemplates' | 'settings' | 'alarmRules' | 'roles';
+/** merge：只新增、修改（預設）；sync：設定包裡沒有的刪除或停用（PR #14 審查第 2 點） */
+export type ImportMode = 'merge' | 'sync';
+/** 超出匯入者自己權限的角色（PR #14 審查第 1 點） */
+export interface BlockedRole {
+  role: string;
+  missing: string[];
+}
 export interface ImportPreview {
   version: number;
+  mode: ImportMode;
+  /** 有任何一筆就整包不能套用 */
+  blocked: BlockedRole[];
   summary: Record<Action, number>;
   sections: Section[];
   warnings: string[];
@@ -38,6 +49,8 @@ export interface ImportPreview {
 }
 
 export const PACKAGE_MAX_BYTES = 80 * 1024 * 1024;
+/** 同步刪除模式套用前要輸入的確認字 */
+export const SYNC_CONFIRM_WORD = '刪除';
 /** 這些設定不屬於「場域設定」：登入鎖定等安全政策留在各系統自己決定 */
 const LOCAL_SETTINGS = /^auth\./;
 const EXTRA_SETTINGS: Record<string, (v: unknown) => boolean> = {
@@ -70,7 +83,11 @@ function keyed<T>(items: T[], base: (t: T) => string): { key: string; item: T }[
 }
 
 /** 比對：套件有、系統沒有 → add；都有但欄位不同 → update；系統有、套件沒有 → removal() 決定 */
-function diff<T extends object>(pkg: { key: string; item: T }[], cur: { key: string; item: T }[], removal: (t: T) => { action: Action; note?: string }): Change[] {
+function diff<T extends object>(
+  pkg: { key: string; item: T }[],
+  cur: { key: string; item: T }[],
+  removal: (t: T) => { action: Action; note?: string } | null,
+): Change[] {
   const out: Change[] = [];
   const curMap = new Map(cur.map((c) => [c.key, c.item]));
   const pkgKeys = new Set(pkg.map((p) => p.key));
@@ -82,7 +99,11 @@ function diff<T extends object>(pkg: { key: string; item: T }[], cur: { key: str
       if (fields.length) out.push({ key: p.key, action: 'update', fields });
     }
   }
-  for (const c of cur) if (!pkgKeys.has(c.key)) out.push({ key: c.key, ...removal(c.item) });
+  for (const c of cur) {
+    if (pkgKeys.has(c.key)) continue;
+    const r = removal(c.item);
+    if (r) out.push({ key: c.key, ...r });
+  }
   return out;
 }
 
@@ -320,8 +341,14 @@ export class SiteTransferService {
   }
 
   /** 比對設定包與目前系統（dryRun 與正式匯入共用） */
-  async preview(pkg: SitePackage, plans: Record<string, Uint8Array>): Promise<Omit<ImportPreview, 'applied'>> {
+  async preview(
+    pkg: SitePackage,
+    plans: Record<string, Uint8Array>,
+    opts: { actor: Pick<Principal, 'perms'>; mode: ImportMode },
+  ): Promise<Omit<ImportPreview, 'applied'>> {
     const { pkg: cur, plans: curPlans } = await this.snapshot();
+    // 合併模式：設定包沒有的不動（不列出）；同步模式才依規則刪除或停用
+    const rm = <T>(fn: (t: T) => { action: Action; note?: string }) => (opts.mode === 'sync' ? fn : () => null);
     const db = this.db;
     const camerasWithAlarms = new Set(
       (await db.selectFrom('alarms').innerJoin('cameras', 'cameras.id', 'alarms.camera_id').select('cameras.code').distinct().execute()).map((r) => r.code),
@@ -334,30 +361,38 @@ export class SiteTransferService {
       fs.map((f) => ({ key: f.id, item: { ...f, plan: planHash(f.plan, files) } }));
 
     const sections: Section[] = [
-      { entity: 'floors', changes: diff(floorView(pkg.floors, plans), floorView(cur.floors, curPlans), () => ({ action: 'keep', note: '樓層不自動刪除' })) },
-      { entity: 'robots', changes: diff(byCode(pkg.robots), byCode(cur.robots), (r) => (r.enabled ? { action: 'disable', note: '有歷史紀錄，改為停用' } : { action: 'keep', note: '已停用' })) },
-      { entity: 'chargers', changes: diff(byCode(pkg.chargers), byCode(cur.chargers), (c) => (occupied.has(c.code) ? { action: 'disable', note: '使用中，改為停用' } : { action: 'delete' })) },
+      { entity: 'floors', changes: diff(floorView(pkg.floors, plans), floorView(cur.floors, curPlans), rm(() => ({ action: 'keep', note: '樓層不自動刪除' }))) },
+      {
+        entity: 'robots',
+        changes: diff(byCode(pkg.robots), byCode(cur.robots), rm((r: SitePackage['robots'][number]) => (r.enabled ? { action: 'disable', note: '有歷史紀錄，改為停用' } : { action: 'keep', note: '已停用' }))),
+      },
+      {
+        entity: 'chargers',
+        changes: diff(byCode(pkg.chargers), byCode(cur.chargers), rm((c: SitePackage['chargers'][number]) => (occupied.has(c.code) ? { action: 'disable', note: '使用中，改為停用' } : { action: 'delete' }))),
+      },
       {
         entity: 'cameras',
         // RTSP：已存在的攝影機保留原本的帳密與位址，不比對
         changes: diff(
           byCode(pkg.cameras.map(({ rtspUrl: _r, ...c }) => c)),
           byCode(cur.cameras.map(({ rtspUrl: _r, ...c }) => c)),
-          (c) => (camerasWithAlarms.has(c.code) ? (c.enabled ? { action: 'disable', note: '有告警紀錄，改為停用' } : { action: 'keep', note: '已停用' }) : { action: 'delete' }),
+          rm((c: { code: string; enabled: boolean }) =>
+            camerasWithAlarms.has(c.code) ? (c.enabled ? { action: 'disable', note: '有告警紀錄，改為停用' } : { action: 'keep', note: '已停用' }) : { action: 'delete' },
+          ),
         ),
       },
-      { entity: 'pois', changes: diff(keyed(pkg.pois, (p) => `${p.floorId}/${p.name}`), keyed(cur.pois, (p) => `${p.floorId}/${p.name}`), () => ({ action: 'delete' })) },
-      { entity: 'zones', changes: diff(keyed(pkg.zones, (p) => `${p.floorId}/${p.name}`), keyed(cur.zones, (p) => `${p.floorId}/${p.name}`), () => ({ action: 'delete' })) },
+      { entity: 'pois', changes: diff(keyed(pkg.pois, (p) => `${p.floorId}/${p.name}`), keyed(cur.pois, (p) => `${p.floorId}/${p.name}`), rm(() => ({ action: 'delete' }))) },
+      { entity: 'zones', changes: diff(keyed(pkg.zones, (p) => `${p.floorId}/${p.name}`), keyed(cur.zones, (p) => `${p.floorId}/${p.name}`), rm(() => ({ action: 'delete' }))) },
       {
         entity: 'paths',
         changes: diff(
           keyed(pkg.paths, (p) => `${p.floorId}/${p.name}`).map(({ key, item: { lengthM: _l, ...p } }) => ({ key, item: p })),
           keyed(cur.paths, (p) => `${p.floorId}/${p.name}`).map(({ key, item: { lengthM: _l, ...p } }) => ({ key, item: p })),
-          () => ({ action: 'delete' }),
+          rm(() => ({ action: 'delete' })),
         ),
       },
-      { entity: 'patrolSchedules', changes: diff(keyed(pkg.patrolSchedules, (s) => s.name), keyed(cur.patrolSchedules, (s) => s.name), () => ({ action: 'delete' })) },
-      { entity: 'taskTemplates', changes: diff(keyed(pkg.taskTemplates, (s) => s.name), keyed(cur.taskTemplates, (s) => s.name), () => ({ action: 'delete' })) },
+      { entity: 'patrolSchedules', changes: diff(keyed(pkg.patrolSchedules, (s) => s.name), keyed(cur.patrolSchedules, (s) => s.name), rm(() => ({ action: 'delete' }))) },
+      { entity: 'taskTemplates', changes: diff(keyed(pkg.taskTemplates, (s) => s.name), keyed(cur.taskTemplates, (s) => s.name), rm(() => ({ action: 'delete' }))) },
       {
         entity: 'settings',
         changes: diff(
@@ -381,10 +416,25 @@ export class SiteTransferService {
         changes: diff(
           pkg.roles.map((r) => ({ key: r.name, item: { description: r.description, perms: [...validPerms(r.perms)].sort() } })),
           cur.roles.map((r) => ({ key: r.name, item: { description: r.description, perms: [...r.perms].sort() } })),
-          () => ({ action: 'keep', note: '角色不自動刪除' }),
+          rm(() => ({ action: 'keep', note: '角色不自動刪除' })),
         ),
       },
     ];
+    // 角色：系統角色不會被設定包改掉；新增的權限不能超出匯入者自己的權限（同角色管理 API 的 assertWithinOwnPerms）
+    const curRoles = new Map(cur.roles.map((r) => [r.name, r]));
+    const systemRoles = new Set((await db.selectFrom('roles').select('name').where('is_system', '=', true).execute()).map((r) => r.name));
+    const blocked: BlockedRole[] = [];
+    const roleSec = sections.find((s) => s.entity === 'roles')!;
+    roleSec.changes = roleSec.changes.map((c) => {
+      if (c.action !== 'add' && c.action !== 'update') return c;
+      if (systemRoles.has(c.key)) return { key: c.key, action: 'keep', note: '系統角色不會被設定包改掉' };
+      const want = validPerms(pkg.roles.find((r) => r.name === c.key)!.perms);
+      const had = new Set(curRoles.get(c.key)?.perms ?? []);
+      const missing = want.filter((p) => !had.has(p) && !opts.actor.perms.includes(p));
+      if (missing.length) blocked.push({ role: c.key, missing });
+      return c;
+    });
+
     const summary: Record<Action, number> = { add: 0, update: 0, delete: 0, disable: 0, keep: 0 };
     for (const s of sections) for (const c of s.changes) summary[c.action]++;
     const warnings: string[] = [];
@@ -396,7 +446,7 @@ export class SiteTransferService {
     if (skipped.length) warnings.push(`略過不合法或不屬於場域設定的規則：${skipped.join('、')}`);
     const droppedPerms = pkg.roles.flatMap((r) => r.perms.filter((p) => !(ALL_PERMS as readonly string[]).includes(p)));
     if (droppedPerms.length) warnings.push(`這套系統沒有的權限碼會略過：${[...new Set(droppedPerms)].join('、')}`);
-    return { version: pkg.version, summary, sections, warnings };
+    return { version: pkg.version, mode: opts.mode, blocked, summary, sections, warnings };
   }
 
   /** 只匯入認得且合法的規則；秘密、登入政策不匯入 */
@@ -415,8 +465,24 @@ export class SiteTransferService {
   }
 
   /** 正式匯入：重新比對後在單一交易中套用 */
-  async apply(pkg: SitePackage, plans: Record<string, Uint8Array>, userId: string): Promise<ImportPreview> {
-    const preview = await this.preview(pkg, plans);
+  async apply(
+    pkg: SitePackage,
+    plans: Record<string, Uint8Array>,
+    actor: Pick<Principal, 'sub' | 'perms'>,
+    mode: ImportMode,
+    confirm?: string,
+  ): Promise<ImportPreview> {
+    const userId = actor.sub;
+    const preview = await this.preview(pkg, plans, { actor, mode });
+    if (preview.blocked.length) {
+      throw new AppError('FORBIDDEN', `設定包的角色權限超出你自己的權限：${preview.blocked.map((b) => `${b.role}（${b.missing.join('、')}）`).join('；')}`, {
+        roles: preview.blocked,
+      });
+    }
+    const removing = preview.summary.delete + preview.summary.disable;
+    if (mode === 'sync' && removing > 0 && confirm !== SYNC_CONFIRM_WORD) {
+      throw new AppError('VALIDATION_FAILED', `同步刪除會刪除或停用 ${removing} 項，請輸入確認字「${SYNC_CONFIRM_WORD}」`, { removing });
+    }
     const changesOf = (e: Entity) => new Map(preview.sections.find((s) => s.entity === e)!.changes.map((c) => [c.key, c]));
 
     // 1. 平面圖先上傳（物件儲存不在交易內）；失敗時刪掉新上傳的

@@ -6,20 +6,56 @@ pause 讓導航停在原地（指令仍在執行），resume 從目前位置接�
 from __future__ import annotations
 
 import asyncio
+import base64
+import logging
 import math
+import os
 import random
+import shutil
+import socket
+import struct
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop, now_ms
 from common.driver import CommandError, RobotDriver, split_params
 from common.transform import Affine2D
 
 TICK_S = 0.1
+#: 對講音訊解碼成 16 kHz、單聲道、16-bit PCM，每 1 秒算一次音量
+TALK_RATE = 16000
+TALK_CHUNK = TALK_RATE * 2
+
+log = logging.getLogger("mock")
+
+
+def dbfs(pcm: bytes) -> float:
+    """16-bit PCM 的音量（dBFS，0 是最大聲；靜音約 -90）"""
+    n = len(pcm) // 2
+    if not n:
+        return -90.0
+    samples = struct.unpack(f"<{n}h", pcm[: n * 2])
+    rms = math.sqrt(sum(x * x for x in samples) / n)
+    return max(-90.0, 20 * math.log10(rms / 32768)) if rms else -90.0
+
+
+def talk_url(url: str, user: str, token: str) -> str:
+    """rtsp://主機/talk/B2-001 → rtsp://talk:<token>@<IP>/talk/B2-001。
+    主機名稱先解析成 IP：靜態編譯的 ffmpeg 自己解析名稱會當掉（同後端 media/ffmpeg.ts）"""
+    u = urlsplit(url)
+    host = u.hostname or "localhost"
+    try:
+        host = socket.gethostbyname(host)
+    except OSError:
+        pass
+    netloc = f"{quote(user, safe='')}:{quote(token, safe='')}@{host}{f':{u.port}' if u.port else ''}"
+    return urlunsplit((u.scheme, netloc, u.path, u.query, ""))
 
 
 class MockDriver(RobotDriver):
     capabilities = frozenset({"navigate", "patrol", "stop", "pause", "resume", "charge", "estop",
-                              "estop_release", "snapshot", "ptz", "light", "follow", "follow_stop"})
+                              "estop_release", "snapshot", "ptz", "light", "follow", "follow_stop",
+                              "speak", "talk_start", "talk_stop"})
 
     def __init__(self, code: str, floor: str, x: float = 0.0, y: float = 0.0, battery: float = 80.0,
                  speed: float = 1.0, dock: dict[str, float] | None = None, fail_rate: float = 0.0,
@@ -53,6 +89,11 @@ class MockDriver(RobotDriver):
         self.ptz = (0.0, 0.0, 0.0)
         self.lights: dict[str, bool] = {}
         self.following: str | None = None
+        #: 對講（T-31）：模擬器不播放，收到音訊就記錄秒數與音量
+        self.talk: dict[str, Any] | None = None
+        self._talk_task: asyncio.Task | None = None
+        #: 按鍵說話、文字語音：記錄收到的內容
+        self.spoken: list[dict[str, Any]] = []
         if teleop:
             self.capabilities = self.capabilities | {"teleop"}
 
@@ -68,6 +109,7 @@ class MockDriver(RobotDriver):
         self._connected = False
         if self._loop_task:
             self._loop_task.cancel()
+        await self._talk_stop()
 
     async def _physics(self) -> None:
         while True:
@@ -101,8 +143,13 @@ class MockDriver(RobotDriver):
 
     async def validate(self, cmd: Command) -> None:
         await super().validate(cmd)
-        if self.state == "estop" and cmd.type not in {"estop_release", "stop"}:
+        # 急停中只擋會動、會發聲的；結束對講、停止一律可以
+        if self.state == "estop" and cmd.type not in {"estop_release", "stop", "talk_stop"}:
             raise CommandError("ESTOP", "robot is in emergency stop")
+        if cmd.type == "talk_start" and not (cmd.args.get("url") and cmd.args.get("token")):
+            raise CommandError("BAD_ARGS", "talk_start requires url and token")
+        if cmd.type == "speak" and not (cmd.args.get("text") or isinstance(cmd.args.get("audio"), dict)):
+            raise CommandError("BAD_ARGS", "speak requires text or audio")
 
     async def _goto(self, gx: float, gy: float, state: str) -> None:
         self.state = state
@@ -169,6 +216,17 @@ class MockDriver(RobotDriver):
         if t == "follow_stop":
             self.following = None
             return None
+        if t == "speak":
+            return self._speak(cmd.args)
+        if t == "talk_start":
+            await self._talk_stop()
+            self.talk = {"seconds": 0, "bytes": 0, "peak_db": -90.0}
+            url = talk_url(str(cmd.args["url"]), str(cmd.args.get("user", "talk")), str(cmd.args["token"]))
+            self._talk_task = asyncio.create_task(self._talk_rx(url))
+            log.info("%s 開始接收對講音訊（模擬器只記錄、不播放）", self.code)
+            return {"receiving": True}
+        if t == "talk_stop":
+            return await self._talk_stop()
 
         self.task_ref = cmd.cmdId
         self._go.set()  # 新的移動指令取代暫停中的舊導航
@@ -205,6 +263,70 @@ class MockDriver(RobotDriver):
         limit = self.speed_limit()
         self.max_speed = min(self.base_speed, limit) if limit else self.base_speed
         return split_params(params, {"walk.speed"})
+
+    def _speak(self, args: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(args.get("audio"), dict):
+            a = args["audio"]
+            data = base64.b64decode(str(a.get("data", "")), validate=True)
+            item = {"kind": "audio", "mime": a.get("mime"), "bytes": len(data), "durationMs": a.get("durationMs")}
+            log.info("%s 播放語音：%s、%d bytes、%.1f 秒（模擬器只記錄）", self.code, item["mime"], item["bytes"], (item["durationMs"] or 0) / 1000)
+        else:
+            item = {"kind": "text", "text": str(args.get("text", ""))}
+            log.info("%s 播放文字語音：%s（模擬器只記錄）", self.code, item["text"])
+        self.spoken.append(item)
+        return {"played": item["kind"]}
+
+    async def _talk_rx(self, url: str) -> None:
+        ffmpeg = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
+        if not ffmpeg:
+            log.warning("%s 沒有 ffmpeg（設定 FFMPEG_PATH），只記錄對講開始與結束", self.code)
+            return
+        proc = await asyncio.create_subprocess_exec(
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", url,
+            "-vn", "-f", "s16le", "-ac", "1", "-ar", str(TALK_RATE), "pipe:1",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            assert proc.stdout is not None
+            await self.consume_talk(proc.stdout)
+            err = (await proc.stderr.read()).decode(errors="replace").strip() if proc.stderr else ""
+            if err:
+                log.warning("%s 對講音訊中斷：%s", self.code, err.splitlines()[-1][:200])
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+
+    async def consume_talk(self, reader: asyncio.StreamReader) -> None:
+        """讀 PCM，每 1 秒記錄一次音量（真機轉接器在這裡把聲音送到喇叭）"""
+        buf = b""
+        while True:
+            chunk = await reader.read(TALK_CHUNK)
+            if not chunk:
+                break
+            buf += chunk
+            while len(buf) >= TALK_CHUNK:
+                sec, buf = buf[:TALK_CHUNK], buf[TALK_CHUNK:]
+                level = dbfs(sec)
+                if self.talk is not None:
+                    self.talk["seconds"] += 1
+                    self.talk["bytes"] += len(sec)
+                    self.talk["peak_db"] = max(self.talk["peak_db"], level)
+                    log.info("%s 對講音訊 第 %d 秒：音量 %.0f dBFS", self.code, self.talk["seconds"], level)
+
+    async def _talk_stop(self) -> dict[str, Any]:
+        if self._talk_task and not self._talk_task.done():
+            self._talk_task.cancel()
+            try:
+                await self._talk_task
+            except asyncio.CancelledError:
+                pass
+        self._talk_task = None
+        stats = dict(self.talk or {})
+        if self.talk is not None:
+            log.info("%s 結束對講：收到 %d 秒、最大音量 %.0f dBFS", self.code, stats.get("seconds", 0), stats.get("peak_db", -90))
+        self.talk = None
+        return stats
 
     def is_estopped(self) -> bool:
         return self.state == "estop"

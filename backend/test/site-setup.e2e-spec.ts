@@ -26,6 +26,7 @@ const tag = Date.now().toString(36).slice(-6);
 const T = tag.toUpperCase();
 const FLOOR = `s${tag}`;
 const FLOOR2 = `t${tag}`;
+const FLOOR3 = `u${tag}`;
 const PW = 'Secret123';
 
 const binaryParser = (res: NodeJS.ReadableStream, cb: (e: Error | null, b: Buffer) => void): void => {
@@ -87,7 +88,7 @@ describe.skipIf(!ready)('場域快速設定（e2e）', () => {
     await db.deleteFrom('chargers').where('code', 'like', like).execute();
     await db.deleteFrom('cameras').where('code', 'like', like).execute();
     await db.deleteFrom('robots').where('code', 'like', like).execute();
-    await db.deleteFrom('floors').where('id', 'in', [FLOOR, FLOOR2]).execute();
+    await db.deleteFrom('floors').where('id', 'in', [FLOOR, FLOOR2, FLOOR3]).execute();
     await db.updateTable('settings').set({ updated_by: null }).where('updated_by', 'in', users).execute();
     await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
     await db.deleteFrom('users').where('id', 'in', users).execute();
@@ -229,7 +230,7 @@ describe.skipIf(!ready)('場域快速設定（e2e）', () => {
       pkg.paths.push({ floorId: FLOOR2, name: `巡邏線 ${tag}`, points: [{ x: 1, y: 1 }, { x: 5, y: 1 }], lengthM: 4 });
       pkg.patrolSchedules.push({ name: `夜巡 ${tag}`, path: { floorId: FLOOR2, name: `巡邏線 ${tag}` }, robotCode: `R-${T}-NEW`, startTime: '22:00', repeat: 'daily', onceDate: null, loops: 2, priority: 'P3', enabled: false });
       pkg.taskTemplates.push({ name: `範本 ${tag}`, kind: 'inspect', priority: 'P3', floorId: FLOOR2, target: { x: 1, y: 1 } });
-      pkg.roles.push({ name: `夜班 ${tag}`, description: null, perms: ['monitor', 'op.estop', 'op.nonexistent'] });
+      pkg.roles.push({ name: `夜班 ${tag}`, description: null, perms: ['maps', 'op.config', 'op.nonexistent'] });
       pkg.settings['cmd.timeoutSec'] = 20;
       pkg.settings['auth.maxFailedLogins'] = 99; // 登入政策不屬於場域設定，略過
       files['site.json'] = strToU8(JSON.stringify(pkg));
@@ -284,24 +285,61 @@ describe.skipIf(!ready)('場域快速設定（e2e）', () => {
       // 只有改到的規則記為這次匯入的人
       const touched = await db.selectFrom('settings').select('key').where('updated_by', 'in', users).execute();
       expect(touched.map((x) => x.key)).toEqual(['cmd.timeoutSec']);
-      expect((await db.selectFrom('roles').select('perms').where('name', '=', `夜班 ${tag}`).executeTakeFirstOrThrow()).perms).toEqual(['monitor', 'op.estop']);
+      expect((await db.selectFrom('roles').select('perms').where('name', '=', `夜班 ${tag}`).executeTakeFirstOrThrow()).perms).toEqual(['maps', 'op.config']);
       // 再匯入同一包：沒有差異
       const again = (await upload(admin, '/api/v1/site/import?dryRun=true', modified(), 'site.zip').expect(200)).body;
       expect(again.summary).toMatchObject({ add: 0, update: 0, delete: 0, disable: 0 });
 
-      // 匯入原本的設定包：測試加的東西拿掉
-      const back = (await upload(admin, '/api/v1/site/import?dryRun=true', original, 'site.zip').expect(200)).body;
+      // 預設「合併」：設定包沒有的不動（PR #14 審查第 2 點）
+      const merge = (await upload(admin, '/api/v1/site/import?dryRun=true', original, 'site.zip').expect(200)).body;
+      expect(merge.mode).toBe('merge');
+      expect(merge.summary).toMatchObject({ delete: 0, disable: 0 });
+      expect(merge.sections.find((s: { entity: string }) => s.entity === 'robots').changes).toEqual([]);
+
+      // 「同步刪除」：測試加的東西拿掉；要輸入確認字
+      const back = (await upload(admin, '/api/v1/site/import?dryRun=true&mode=sync', original, 'site.zip').expect(200)).body;
+      expect(back.mode).toBe('sync');
       const sec = (e: string) => back.sections.find((s: { entity: string }) => s.entity === e).changes;
       expect(sec('robots')).toEqual([{ key: `R-${T}-NEW`, action: 'disable', note: '有歷史紀錄，改為停用' }]);
       expect(sec('chargers')).toEqual([{ key: `CHG-${T}-NEW`, action: 'delete' }]);
       expect(sec('floors')).toEqual([{ key: FLOOR2, action: 'keep', note: '樓層不自動刪除' }]);
-      await upload(admin, '/api/v1/site/import', original, 'site.zip').expect(200);
+      const noConfirm = (await upload(admin, '/api/v1/site/import?mode=sync', original, 'site.zip').expect(400)).body;
+      expect(noConfirm.error.message).toMatch(/請輸入確認字「刪除」/);
+      await upload(admin, '/api/v1/site/import?mode=sync&confirm=錯字', original, 'site.zip').expect(400);
+      expect((await db.selectFrom('robots').select('enabled').where('code', '=', `R-${T}-NEW`).executeTakeFirstOrThrow()).enabled).toBe(true);
+      await upload(admin, `/api/v1/site/import?mode=sync&confirm=${encodeURIComponent('刪除')}`, original, 'site.zip').expect(200);
       expect((await db.selectFrom('robots').select('enabled').where('code', '=', `R-${T}-NEW`).executeTakeFirstOrThrow()).enabled).toBe(false);
       expect(await db.selectFrom('chargers').select('id').where('code', '=', `CHG-${T}-NEW`).executeTakeFirst()).toBeUndefined();
       expect(await db.selectFrom('cameras').select('id').where('code', '=', `CAM-${T}-NEW`).executeTakeFirst()).toBeUndefined();
       expect(await db.selectFrom('patrol_schedules').select('id').where('name', '=', `夜巡 ${tag}`).executeTakeFirst()).toBeUndefined();
       expect(await db.selectFrom('paths').select('id').where('floor_id', '=', FLOOR2).executeTakeFirst()).toBeUndefined();
       expect((await db.selectFrom('cameras').select('name').where('code', '=', `CAM-${T}-1`).executeTakeFirstOrThrow()).name).toBe('大門, 東側');
+    });
+
+    it('角色權限不能超出匯入者自己的權限：預覽列出、套用 403、整包不寫入；系統角色不被改（PR #14 審查第 1 點）', async () => {
+      const { files, pkg } = readZip(original);
+      // 匯入者有 settings、op.config、maps、robotmgr，沒有 users、roles
+      pkg.roles.push({ name: `升權 ${tag}`, description: null, perms: ['maps', 'users', 'roles'] });
+      const mine = pkg.roles.find((r) => r.name === `${tag}-settings+op.config+maps+robotmgr`)!;
+      mine.perms = [...mine.perms, 'users']; // 把自己的角色升級
+      const sys = pkg.roles.find((r) => r.name === '系統管理員')!;
+      sys.perms = ['monitor'];
+      pkg.floors.push({ id: FLOOR3, name: `升權樓層 ${tag}`, sort: 99, widthM: 10, heightM: 10, robotQuota: 0, plan: null });
+      const zip = Buffer.from(zipSync({ ...files, 'site.json': strToU8(JSON.stringify(pkg)) }));
+      const p = (await upload(admin, '/api/v1/site/import?dryRun=true', zip, 'site.zip').expect(200)).body;
+      expect(p.blocked).toEqual(
+        expect.arrayContaining([
+          { role: `升權 ${tag}`, missing: ['users', 'roles'] },
+          { role: `${tag}-settings+op.config+maps+robotmgr`, missing: ['users'] },
+        ]),
+      );
+      expect(p.blocked).toHaveLength(2);
+      expect(p.sections.find((s: { entity: string }) => s.entity === 'roles').changes).toContainEqual({ key: '系統管理員', action: 'keep', note: '系統角色不會被設定包改掉' });
+      const r = (await upload(admin, '/api/v1/site/import', zip, 'site.zip').expect(403)).body;
+      expect(r.error.message).toContain('超出你自己的權限');
+      expect(await db.selectFrom('floors').select('id').where('id', '=', FLOOR3).executeTakeFirst()).toBeUndefined();
+      expect(await db.selectFrom('roles').select('id').where('name', '=', `升權 ${tag}`).executeTakeFirst()).toBeUndefined();
+      expect((await db.selectFrom('roles').select('perms').where('name', '=', `${tag}-settings+op.config+maps+robotmgr`).executeTakeFirstOrThrow()).perms).not.toContain('users');
     });
 
     it('版本與格式：較新的版本拒絕並說明；壞 zip、缺平面圖、樓層參照錯誤', async () => {

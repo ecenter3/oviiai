@@ -287,7 +287,8 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
 
   private async stream(key: string): Promise<StreamInfo> {
     const info = await this.streams.get(key);
-    if (!info || !info.source) throw new AppError('NOT_FOUND', '沒有這一路影像或沒有影像來源');
+    // 對講路徑不能抓拍、錄影（控制室的講話內容不留存）
+    if (!info || !info.source || info.kind === 'talk') throw new AppError('NOT_FOUND', '沒有這一路影像或沒有影像來源');
     return info;
   }
 

@@ -12,6 +12,7 @@ import { useRealtime } from '../../stores/realtime';
 import { useToast } from '../../stores/toast';
 import type { RobotRow } from '../robots/RobotsPage';
 import { Joystick } from './Joystick';
+import { TalkRow } from './TalkRow';
 import { useTeleop } from './useTeleop';
 
 interface Floor {
@@ -90,6 +91,8 @@ export function RemotePage() {
   const [person, setPerson] = useState('');
   const [following, setFollowing] = useState<string | null>(null);
   const [lift, setLift] = useState(0);
+  /** 即時對講中：影像取消靜音，聽現場聲音（影像與整合 §2） */
+  const [talking, setTalking] = useState(false);
 
   // 換到另一台：面板、雲台、燈光等畫面狀態重來（第一次載入清單不算）
   const prevRid = useRef(rid);
@@ -218,7 +221,7 @@ export function RemotePage() {
       <div className="rgrid2">
         <section className="panel video-wrap">
           {row && (
-            <VideoPlayer key={row.code} streamKey={streamKey} label={name}>
+            <VideoPlayer key={row.code} streamKey={streamKey} label={name} muted={!talking}>
               <MediaControls streamKey={streamKey} name={name} />
             </VideoPlayer>
           )}
@@ -386,6 +389,7 @@ export function RemotePage() {
               )}
 
               <div className="acts-list">
+                {row && <TalkRow key={row.id} robotId={row.id} caps={row.caps} online={online} onLive={setTalking} />}
                 <div className="arow">
                   <span className="ai">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>

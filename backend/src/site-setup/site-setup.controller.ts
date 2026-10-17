@@ -13,6 +13,12 @@ import { SetupStatusService } from './setup-status.service';
 import { PACKAGE_MAX_BYTES, SiteTransferService } from './site-transfer.service';
 
 const DryRun = z.object({ dryRun: z.enum(['true', 'false', '1', '0']).optional() }).strict();
+const SiteImportQuery = DryRun.extend({
+  /** merge（預設）只新增、修改；sync 會刪除或停用設定包裡沒有的 */
+  mode: z.enum(['merge', 'sync']).default('merge'),
+  /** sync 且有刪除時必填「刪除」 */
+  confirm: z.string().max(16).optional(),
+}).strict();
 const TemplateQuery = z.object({ format: z.enum(['xlsx', 'csv']).default('xlsx') }).strict();
 const isDry = (q: z.infer<typeof DryRun>) => q.dryRun === 'true' || q.dryRun === '1';
 const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
@@ -98,12 +104,12 @@ export class SiteSetupController {
   @Post('site/import')
   @HttpCode(200)
   @RequirePerm('settings', 'op.config')
-  @OpLog((req) => (req.query.dryRun === 'true' || req.query.dryRun === '1' ? 'site.import.preview' : 'site.import'), () => 'site')
+  @OpLog((req) => (req.query.dryRun === 'true' || req.query.dryRun === '1' ? 'site.import.preview' : 'site.import'), (req) => `site（${req.query.mode === 'sync' ? '同步刪除' : '合併'}）`)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: PACKAGE_MAX_BYTES, files: 1 } }))
-  async import(@UploadedFile() file: Express.Multer.File | undefined, @Query(new ZodPipe(DryRun)) q: z.infer<typeof DryRun>, @CurrentUser() user: Principal) {
+  async import(@UploadedFile() file: Express.Multer.File | undefined, @Query(new ZodPipe(SiteImportQuery)) q: z.infer<typeof SiteImportQuery>, @CurrentUser() user: Principal) {
     const { pkg, plans } = this.transfer.read(need(file).buffer);
-    if (isDry(q)) return { ...(await this.transfer.preview(pkg, plans)), applied: false };
-    return this.transfer.apply(pkg, plans, user.sub);
+    if (isDry(q)) return { ...(await this.transfer.preview(pkg, plans, { actor: user, mode: q.mode })), applied: false };
+    return this.transfer.apply(pkg, plans, user, q.mode, q.confirm);
   }
 
   // ===== T-46 設定精靈 =====

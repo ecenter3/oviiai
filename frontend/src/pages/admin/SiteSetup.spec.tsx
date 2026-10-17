@@ -100,6 +100,8 @@ describe('批次匯入對話框（T-45）', () => {
 describe('場域匯出／匯入（T-44）', () => {
   const preview = {
     version: 1,
+    mode: 'merge',
+    blocked: [] as { role: string; missing: string[] }[],
     summary: { add: 2, update: 1, delete: 1, disable: 0, keep: 1 },
     sections: [
       { entity: 'robots', changes: [{ key: 'B2-009', action: 'add' }] },
@@ -132,6 +134,45 @@ describe('場域匯出／匯入（T-44）', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: '套用匯入' }));
     expect(await screen.findByRole('region', { name: '已套用' })).toBeTruthy();
     expect(calls.some((c) => c.url === '/api/v1/site/import' && c.method === 'POST')).toBe(true);
+  });
+
+  it('預設合併；勾「同步刪除」才帶 mode=sync，刪除數紅字，要輸入「刪除」才能套用（PR #14 審查第 2 點）', async () => {
+    const sync = { ...preview, mode: 'sync', summary: { add: 0, update: 0, delete: 3, disable: 1, keep: 0 } };
+    stub((url) => (url.includes('/site/import') ? json(url.includes('dryRun') ? (url.includes('mode=sync') ? sync : preview) : { ...sync, applied: true }) : undefined));
+    auth(['settings', 'op.config']);
+    render(wrap(<SitePage />));
+    pick('場域設定包', 'site.zip');
+    fireEvent.click(screen.getByRole('button', { name: '預覽差異' }));
+    await screen.findByText('合併（只新增、修改）');
+    expect(calls.at(-1)!.url).toBe('/api/v1/site/import?dryRun=true');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /同步刪除/ }));
+    fireEvent.click(screen.getByRole('button', { name: '預覽差異' }));
+    expect(await screen.findByText('同步刪除：將刪除或停用 4 項，攝影機刪除後帳密要重新輸入')).toBeTruthy();
+    expect(calls.at(-1)!.url).toBe('/api/v1/site/import?dryRun=true&mode=sync');
+    expect(document.querySelectorAll('.danger-count')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '套用匯入' }));
+    const dlg = screen.getByRole('alertdialog');
+    const ok = within(dlg).getByRole('button', { name: '套用匯入' }) as HTMLButtonElement;
+    expect(ok.disabled).toBe(true);
+    fireEvent.change(within(dlg).getByLabelText('請輸入「刪除」確認'), { target: { value: '刪' } });
+    expect(ok.disabled).toBe(true);
+    fireEvent.change(within(dlg).getByLabelText('請輸入「刪除」確認'), { target: { value: '刪除' } });
+    fireEvent.click(ok);
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && !c.url.includes('dryRun'))).toBe(true));
+    expect(calls.at(-1)!.url).toBe(`/api/v1/site/import?mode=sync&confirm=${encodeURIComponent('刪除')}`);
+  });
+
+  it('角色權限超出自己：紅字列出角色與權限，不能套用（PR #14 審查第 1 點）', async () => {
+    stub((url) => (url.includes('/site/import') ? json({ ...preview, blocked: [{ role: '夜班', missing: ['users', 'roles'] }] }) : undefined));
+    auth(['settings', 'op.config']);
+    render(wrap(<SitePage />));
+    pick('場域設定包', 'site.zip');
+    fireEvent.click(screen.getByRole('button', { name: '預覽差異' }));
+    const box = await screen.findByText(/權限超出你自己的權限/);
+    expect(box.closest('.site-blocked')!.textContent).toContain('夜班：使用者管理、角色管理');
+    expect((screen.getByRole('button', { name: '套用匯入' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('沒有 op.config 只能預覽；匯出帶權杖下載 zip', async () => {

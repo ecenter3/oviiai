@@ -28,6 +28,8 @@ CommandType = Literal[
     "navigate", "patrol", "stop", "pause", "resume", "estop", "estop_release", "charge",
     "ptz", "light", "snapshot", "record_start", "record_stop", "speak", "follow",
     "follow_stop", "set_params", "lift",
+    # 雙向對講方案 A（T-31）：從 MediaMTX 拉 talk/{robotCode} 的音訊送到機器人喇叭
+    "talk_start", "talk_stop",
 ]
 
 AckStatus = Literal["accepted", "rejected", "done", "failed"]

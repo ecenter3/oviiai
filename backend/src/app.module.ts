@@ -18,6 +18,7 @@ import { SettingsModule } from './settings/settings.module';
 import { MapsModule } from './maps/maps.module';
 import { UsersModule } from './users/users.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
+import { IntercomModule } from './intercom/intercom.module';
 import { MediaModule } from './media/media.module';
 import { NavModule } from './nav/nav.module';
 import { ParamsModule } from './params/params.module';
@@ -43,6 +44,7 @@ import { StorageModule } from './storage/storage.module';
     FleetModule,
     CommandsModule,
     ParamsModule,
+    IntercomModule,
     DispatchModule,
     ChargingModule,
     AlarmsModule,

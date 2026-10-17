@@ -7,7 +7,7 @@ import { formatTime, t, type MessageKey } from '../../i18n';
 import { useToast } from '../../stores/toast';
 
 export const BRANDS = ['anbot', 'unitree', 'deep'] as const;
-export const CAPS = ['ptz', 'light', 'talk', 'follow', 'lift', 'env'] as const;
+export const CAPS = ['ptz', 'light', 'talk', 'talk_live', 'follow', 'lift', 'env'] as const;
 
 export interface ManagedRobot {
   id: string;

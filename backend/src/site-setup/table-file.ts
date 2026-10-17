@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { unzipSync, zipSync } from 'fflate';
 import { AppError } from '../common/errors';
 
 /** 上傳檔的一列：rowNo 是試算表上看到的列號（標題是第 1 列），回報錯誤用 */
@@ -19,6 +20,31 @@ export interface Column {
 }
 
 export const MAX_ROWS = 1000;
+/** xlsx 解壓縮後的總大小上限（PR #14 審查第 3 點：特製的小檔可能解壓成極大的 XML） */
+export const XLSX_MAX_UNZIPPED = 50 * 1024 * 1024;
+
+/**
+ * 先用 fflate 讀 zip 目錄：宣告的解壓縮總大小超過上限就拒絕；通過才解壓縮。
+ * fflate 依目錄宣告的大小配置輸出、不會寫超過，所以謊報大小的檔案只會被截斷（之後解析失敗）。
+ * 解好的內容以不壓縮（store）重新打包交給 exceljs，exceljs 讀到的大小就是實際大小。
+ */
+export function boundedXlsx(buf: Buffer, max = XLSX_MAX_UNZIPPED): Buffer {
+  let total = 0;
+  let files: Record<string, Uint8Array>;
+  try {
+    files = unzipSync(buf, {
+      filter: (f) => {
+        total += f.originalSize;
+        if (total > max) throw new AppError('VALIDATION_FAILED', `Excel 檔解壓縮後超過 ${Math.round(max / 1024 / 1024)} MB，請分批匯入`);
+        return true;
+      },
+    });
+  } catch (e) {
+    if (e instanceof AppError) throw e;
+    throw new AppError('VALIDATION_FAILED', '無法讀取 Excel 檔（請存成 .xlsx）');
+  }
+  return Buffer.from(zipSync(files, { level: 0 }));
+}
 const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
 
 /** 依副檔名或內容判斷：xlsx 是 zip（PK 開頭） */
@@ -54,9 +80,10 @@ export async function parseTable(buf: Buffer, filename: string, columns: Column[
 }
 
 async function readXlsx(buf: Buffer): Promise<{ rowNo: number; cells: string[] }[]> {
+  const safe = boundedXlsx(buf);
   const wb = new ExcelJS.Workbook();
   try {
-    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    await wb.xlsx.load(safe as unknown as ArrayBuffer);
   } catch {
     throw new AppError('VALIDATION_FAILED', '無法讀取 Excel 檔（請存成 .xlsx）');
   }
