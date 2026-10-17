@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../../api/client';
+import { BulkImportDialog } from '../../components/BulkImportDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { formatTime, t, type MessageKey } from '../../i18n';
 import { useToast } from '../../stores/toast';
@@ -87,6 +88,7 @@ const fromRobot = (r: ManagedRobot): Form => ({
  */
 export function RobotAdminPage() {
   const qc = useQueryClient();
+  const [bulk, setBulk] = useState(false);
   const floors = useQuery({ queryKey: ['floors'], queryFn: () => api<Floor[]>('/floors') });
   const list = useQuery({ queryKey: ['robots', 'manage'], queryFn: () => api<ManagedRobot[]>('/robots/manage'), refetchInterval: 10_000 });
   const [editing, setEditing] = useState<ManagedRobot | null>(null);
@@ -159,10 +161,14 @@ export function RobotAdminPage() {
   const robots = list.data ?? [];
   return (
     <div className="pg2">
+      {bulk && <BulkImportDialog kind="robots" onClose={() => setBulk(false)} onDone={() => void qc.invalidateQueries({ queryKey: ['robots'] })} />}
       <section className="panel">
         <div className="pane-head">
           <span className="title">{t('page.robotmgr')}</span>
           <span className="meta">{t('robotmgr.meta', { n: robots.length, on: robots.filter((r) => r.enabled).length })}</span>
+          <button type="button" className="obtn bulk" onClick={() => setBulk(true)}>
+            {t('bulk.open')}
+          </button>
         </div>
         <div className="scroll">
           <div className="pane-body">

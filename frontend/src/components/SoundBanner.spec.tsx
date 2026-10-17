@@ -43,11 +43,14 @@ describe('頁首橫幅', () => {
     const { Layout } = await import('./Layout');
     const { useAuth } = await import('../stores/auth');
     const { MemoryRouter } = await import('react-router-dom');
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
     useAuth.setState({ status: 'authed', perms: ['sysalarm'], user: { displayName: '警衛', role: { name: '警衛' } } as never });
     render(
-      <MemoryRouter>
-        <Layout />
-      </MemoryRouter>,
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <Layout />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     const b = screen.getByRole('button', { name: /提示音尚未啟用，點此啟用/ });
     fireEvent.click(b);

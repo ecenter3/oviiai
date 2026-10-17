@@ -734,3 +734,42 @@ label.arow { cursor: pointer; }
 @media (max-width: 1100px) { .rgrid2 { grid-template-columns: 1fr; } .remote { height: auto; } }
 .pfoot .meta { margin: 0 auto 0 0; }
 .rwarn.idle { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-color: rgba(245,158,11,.6); background: rgba(245,158,11,.12); color: #fde68a; }
+
+/* ===== 批次匯入、場域匯出匯入、設定精靈（T-45、T-44、T-46；原型無對應畫面，沿用既有元件樣式） ===== */
+.modal.wide2 { width: min(760px, 100%); max-height: calc(100vh - 32px); overflow: auto; }
+.bulk-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--fg-2); }
+.bulk-steps li .row { display: inline-flex; gap: 8px; margin-left: 10px; }
+.bulk-steps input[type=file] { display: block; margin-top: 6px; color: var(--fg); }
+.bulk-result { max-height: 320px; overflow: auto; }
+.dtbl tr.bad td { background: rgba(239,68,68,.07); }
+.row-errs { margin: 0; padding-left: 16px; color: #fca5a5; font-size: 12px; }
+.warn-text { color: #fde68a; font-size: 13px; }
+.ok-text { color: #86efac; font-size: 13px; }
+.sub-h .obtn, .pane-head .obtn.bulk { margin-left: 8px; }
+.site-list { margin: 10px 0 14px; padding-left: 18px; font-size: 13px; color: var(--fg-2); display: flex; flex-direction: column; gap: 4px; }
+.dcard input[type=file] { display: block; margin: 12px 0; color: var(--fg); font-size: 13px; }
+.dcard .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.dcard h3 .chips { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: 8px; font-weight: 400; }
+.site-warn { margin: 0 0 12px; padding: 10px 12px 10px 28px; border-radius: 6px; border: 1px solid rgba(245,158,11,.45); background: rgba(245,158,11,.08); color: #fde68a; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.site-sec { margin-top: 14px; }
+.site-sec h4 { font-size: 13px; margin-bottom: 6px; color: var(--accent-2); }
+.setup { height: 100%; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 10px; padding: 10px 16px; }
+.setup-steps ol { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.setup-steps ol button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--fg-2); text-align: left; cursor: pointer; }
+.setup-steps ol button:hover { background: var(--card); }
+.setup-steps ol button.on { border-color: var(--accent); background: rgba(25,180,255,.1); color: var(--fg); }
+.setup-steps .num { width: 26px; height: 26px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); font: 700 12px var(--font-data); }
+.setup-steps button.done .num { border-color: rgba(34,197,94,.6); background: rgba(34,197,94,.15); color: #86efac; }
+.setup-steps .lbl { display: flex; flex-direction: column; font-size: 13px; }
+.setup-steps .lbl small { font-size: 11px; color: var(--fg-3); }
+.setup-steps .hint { padding: 0 14px 14px; }
+.setup-bar { height: 4px; margin: 0 14px; border-radius: 2px; background: var(--card); overflow: hidden; }
+.setup-bar i { display: block; height: 100%; background: #22c55e; transition: width .3s; }
+.setup-main { display: flex; flex-direction: column; min-height: 0; }
+.setup-main .pane-head { gap: 8px; }
+.setup-main .pane-head .push { flex: 1; }
+.setup-guide { padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--fg-2); }
+.setup-missing { margin: 8px 0 0; padding-left: 18px; color: #fde68a; display: flex; flex-direction: column; gap: 2px; }
+.setup-embed { flex: 1; min-height: 520px; overflow: auto; }
+.setup-embed > .pg2, .setup-embed > .page { height: auto; min-height: 520px; }
+@media (max-width: 900px) { .setup { grid-template-columns: 1fr; height: auto; } }

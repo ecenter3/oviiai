@@ -52,6 +52,7 @@ export const PAGES: PageDef[] = [
   { path: '/oplogs', title: 'page.oplog', perms: ['oplog'], group: 'menu.group.admin', task: 'T-06', phase: 1 },
   // 原型沒有場域匯出／匯入頁（第一期追加），放在管理設置最後
   { path: '/site', title: 'page.site', perms: ['settings'], group: 'menu.group.admin', task: 'T-44', phase: 1 },
+  { path: '/setup', title: 'page.setup', perms: ['settings'], group: 'menu.group.admin', task: 'T-46', phase: 1 },
 
   { path: '/logs', title: 'page.logs', perms: ['logs'], group: 'menu.group.debug', task: 'T-42', phase: 2 },
   { path: '/versions', title: 'page.versions', perms: ['versions'], group: 'menu.group.debug', task: 'T-42', phase: 2 },
