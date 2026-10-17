@@ -33,7 +33,9 @@ SDK 到手時要確認：上樁對接成功後回報哪個欄位表示充電中�
 - 機器人能接收即時音訊串流 → 能力勾 `talk_live`（方案 A）：實作 `talk_start {url, user, token}` 與 `talk_stop`。
   以 `rtsp://<user>:<token>@<url 的主機>/talk/<代碼>` 拉 Opus 音訊（主機名稱先解析成 IP，靜態編譯的 ffmpeg 自己解析會當掉），
   解碼後送到機器人喇叭；推流的人掛斷時串流會結束，轉接器不要自動重連。參考 `mock/driver.py` 的 `_talk_rx`。
-- 機器人只能播放音檔 → 能力勾 `talk`（方案 B）：實作 `speak {audio: {mime, data(base64), durationMs}}`（也可能是 `{text}`），
+- 拉流失敗或中斷（沒收到 `talk_stop` 就斷了）要發 `talk_failed {reason}` 事件，控制室才知道機器人端已斷線（PR #15 審查第 3 點）。
+- 機器人只能播放音檔 → 能力勾 `talk`（方案 B）：實作 `speak {audio: {url, mime, bytes, durationMs}}`（也可能是 `{text}`），
+  `url` 是 5 分鐘有效的預簽名網址，下載後播放（參考 `mock/driver.py` 的 `download`；上限 10 MB），
   瀏覽器錄的是 `audio/webm`（Opus）居多，SDK 不吃 webm 時用 ffmpeg 轉成機型要的格式。
 - 兩者都支援時只勾 `talk_live`（畫面優先用即時對講），或兩個都勾。
 

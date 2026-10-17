@@ -800,6 +800,8 @@ export const zhTW = {
   'talk.err.failed': '對講連線失敗',
   'talk.err.busy': '這台機器人正由其他人對講中',
   'talk.err.dropped': '對講連線中斷，已結束對講',
+  'talk.err.robot': '機器人端已斷線，對講已結束',
+  'talk.err.stoppedBy': '對講已被 {by} 結束',
   'remote.act.follow.hint': '白名單人員編號（人臉系統）',
   'remote.act.follow.person': '跟隨的人員編號',
   'remote.act.follow.start': '跟隨',

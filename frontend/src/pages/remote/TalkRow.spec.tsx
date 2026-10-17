@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useTalkEvents } from '../../stores/talk';
 import { useToast } from '../../stores/toast';
 import { TalkRow } from './TalkRow';
 import { talkMode } from './useIntercom';
@@ -134,6 +135,29 @@ describe('方案 A 即時對講', () => {
     fireEvent.click(screen.getByRole('button', { name: '對講' }));
     await waitFor(() => expect(toasts()).toContain('瀏覽器沒有允許使用麥克風，請在網址列左側允許後再試'));
     expect(calls).toEqual([]); // 沒有麥克風就不向後端取憑證
+  });
+
+  it('後端通知機器人端已斷線（talk.ended）：結束、提示，不再通知後端（PR #15 審查第 3 點）', async () => {
+    const onLive = vi.fn();
+    render(<TalkRow robotId="r1" caps={['talk_live']} online onLive={onLive} />);
+    fireEvent.click(screen.getByRole('button', { name: '對講' }));
+    await screen.findByRole('button', { name: '掛斷' });
+    act(() => useTalkEvents.getState().setEnded({ robotId: 'r1', code: 'B2-001', reason: 'robot_failed', detail: '401' }));
+    await screen.findByRole('button', { name: '對講' });
+    await waitFor(() => expect(toasts()).toContain('機器人端已斷線，對講已結束'));
+    expect(track.stopped).toBe(true);
+    expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/v1/robots/r1/talk')).toBe(false);
+    expect(onLive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('系統管理員結束：提示是誰結束的；別台的通知不影響', async () => {
+    render(<TalkRow robotId="r1" caps={['talk_live']} online onLive={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: '對講' }));
+    await screen.findByRole('button', { name: '掛斷' });
+    act(() => useTalkEvents.getState().setEnded({ robotId: 'r9', code: 'B2-009', reason: 'stopped', by: 'admin' }));
+    expect(screen.getByRole('button', { name: '掛斷' })).toBeTruthy();
+    act(() => useTalkEvents.getState().setEnded({ robotId: 'r1', code: 'B2-001', reason: 'stopped', by: '值班主管' }));
+    await waitFor(() => expect(toasts()).toContain('對講已被 值班主管 結束'));
   });
 
   it('離開頁面（卸載）時掛斷', async () => {
