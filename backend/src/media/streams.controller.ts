@@ -36,7 +36,8 @@ export class StreamsController {
   async token(@Param('key') key: string, @CurrentUser() user: Principal) {
     if (!KEY.test(key)) throw new AppError('NOT_FOUND', '沒有這一路影像');
     const s = await this.streams.get(key);
-    if (!s?.source) throw new AppError('NOT_FOUND', '沒有這一路影像或沒有影像來源');
+    // 對講路徑不發播放憑證（不能旁聽控制室講話）；對講由 /robots/:id/talk 核發推流憑證
+    if (!s?.source || s.kind === 'talk') throw new AppError('NOT_FOUND', '沒有這一路影像或沒有影像來源');
     const t = issueStreamToken(key, user.sub);
     this.streams.markWanted(key);
     return { token: t.token, expiresAt: new Date(t.expiresAt).toISOString(), whepUrl: `${mediaConfig().publicUrl}/${key}/whep` };
@@ -60,7 +61,8 @@ export class MediaAuthController {
       res.status(200).end();
       return;
     }
-    this.log.debug(`拒絕 ${body?.action ?? '?'} ${body?.path ?? '?'}（${body?.protocol ?? '?'}，${body?.ip ?? '?'}）`);
+    // 只記帳號與有沒有密碼、查詢字串，不記內容（憑證）
+    this.log.debug(`拒絕 ${body?.action ?? '?'} ${body?.path ?? '?'}（${body?.protocol ?? '?'}，${body?.ip ?? '?'}，帳號 ${body?.user || '-'}、密碼${body?.password ? '有' : '無'}、查詢${body?.query ? '有' : '無'}）`);
     res.status(401).end();
   }
 }

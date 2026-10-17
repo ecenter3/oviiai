@@ -8,6 +8,8 @@ export interface MtxPathConf {
   runOnDemandRestart?: boolean;
   runOnDemandCloseAfter?: string;
   rtspTransport?: string;
+  /** false：已有人推流時拒絕第二個推流者（對講一次一人） */
+  overridePublisher?: boolean;
 }
 
 export interface MtxPathState {

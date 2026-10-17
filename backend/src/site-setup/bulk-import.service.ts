@@ -33,7 +33,7 @@ export const COLUMNS: Record<ImportKind, Column[]> = {
     { key: 'port', label: '埠號', aliases: ['port'], hint: '1–65535，可留空', example: '' },
     { key: 'username', label: '帳號', hint: '連線帳號，可留空', example: '' },
     { key: 'secret', label: '密碼', aliases: ['連線密碼'], hint: '連線密碼，加密存放；更新時留空表示不變', example: '' },
-    { key: 'caps', label: '能力', hint: `逗號分隔：${CAPS.join('、')}（雲台、燈光、對講、跟隨、升降桿、環境感測）`, example: 'ptz,light' },
+    { key: 'caps', label: '能力', hint: `逗號分隔：${CAPS.join('、')}（雲台、燈光、語音播放、即時對講、跟隨、升降桿、環境感測）`, example: 'ptz,light' },
     { key: 'enabled', label: '啟用', hint: '是／否，留空為是（停用的機器人轉接器不會連線）', example: '是' },
   ],
 };

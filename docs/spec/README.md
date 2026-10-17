@@ -25,6 +25,8 @@
 | `db/migrations/001_init.sql` 一次建 24 張表 | node-pg-migrate 時間戳檔名；已有 `1760500000000_extensions.sql`，之後依模組各自新增 | 每個模組一支 migration 較好審查 |
 | `RobotDriver` 每個指令一個方法（navigate、stop…） | `RobotDriver.execute(cmd)` 統一入口＋`capabilities` | 由 `common/bridge.py` 統一處理 ack 流程 |
 | pnpm workspaces | 各資料夾獨立 npm | 先求簡單，需要時再改 |
+| 能力清單 ptz、light、talk、follow、lift、env | 多 `talk_live`（能接收即時音訊，對講方案 A）；`talk` 表示能播放音檔（方案 B） | 依能力決定顯示哪種對講，不做品牌判斷 |
+| 指令類型（機器人接入 §2） | 多 `talk_start`、`talk_stop`（方案 A）；`speak` 的參數多 `audio`（方案 B 音檔） | 雙向對講 T-31 |
 | 操作權限 6 個（後端邏輯 §6） | 7 個：多 `op.media`（刪除抓拍與錄影），預設只給系統管理員 | PR #12 審查：只有瀏覽權限不應能刪證據 |
 | 場域匯入的「刪除」 | 預設「合併」不刪；勾「同步刪除」才刪，且要輸入確認字。刪除時機器人改停用、有告警紀錄的攝影機與使用中的充電樁改停用、樓層與角色不刪；`auth.*` 與座標校正不在設定包 | 歷史紀錄參照、外鍵；登入政策與校正屬於各場域 |
 | 機器人參數四個子系統只列在系統規格書 | 欄位、選項代碼、範圍定義在 `packages/contracts/src/params.ts`，前後端共用 | 避免兩邊各寫一份 |

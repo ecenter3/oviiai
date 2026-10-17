@@ -86,3 +86,13 @@ log_parameter_max_length_on_error = 0
 - **批次匯入**（地圖管理、機器人管理頁的「批次匯入」）：Excel（.xlsx）或 CSV（UTF-8，Excel 選「CSV UTF-8」另存），一次最多 1000 列、5 MB；Excel 解壓縮後總大小上限 50 MB（先檢查 zip 目錄，PR #14 審查第 3 點）。代碼已存在的會更新那一筆；RTSP、密碼欄留空表示不變。
 - 相依套件：讀寫 Excel 用 `exceljs`，它帶的 `uuid` 以 npm `overrides` 升到 11.1.1 以上（GHSA-w5hq-g745-h8pq；exceljs 只用 v4，不受影響，升級是為了讓 `npm audit` 乾淨）。
 
+## 9. 雙向對講（T-31）
+- 依機器人「能力」決定方式（機器人管理勾選）：**即時對講**（`talk_live`，方案 A）或 **語音播放**（`talk`，方案 B 按鍵說話）；都沒勾就不顯示對講。
+- **方案 A**：瀏覽器麥克風以 WHIP 推到 MediaMTX 的 `talk/<代碼>`（經 Nginx 的 `/media/`，同播放），轉接器以 RTSP 拉這一路送到機器人喇叭；現場聲音從影像串流聽（對講時取消靜音）。
+  - 一台同時只有一人對講（MediaMTX 路徑 `overridePublisher: false`）。
+  - 權限：瀏覽器拿後端核發的 **publish 憑證**（60 秒、只能推這一路）；轉接器拿 **短憑證**放在 RTSP 帳密（`rtsp://talk:<憑證>@…`）。短憑證約 33 字，因為 ffmpeg 的 RTSP 用 128 bytes 存網址帳密，一般憑證會被截斷（實測）。播放憑證不能用來推流或旁聽對講。
+  - `MEDIA_ADAPTER_RTSP`：轉接器連 MediaMTX 的 RTSP 位址；轉接器在別台主機時要設，並開放轉接器網段到 MediaMTX 8554/TCP。
+  - 瀏覽器只有在 **HTTPS**（或 localhost）下才給麥克風；正式環境一定要走 Nginx 的 HTTPS。第一次使用時瀏覽器會詢問麥克風權限。
+- **方案 B**：按住錄音、放開送出（最長 30 秒、1 MB），後端以 `speak` 指令把音檔（base64）送給轉接器播放；**音檔不留存**。
+- 對講的開始、結束與每次按鍵說話都記在操作日誌（`robot.talk_start`、`robot.talk_stop`、`robot.speak`），不記內容。
+

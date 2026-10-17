@@ -5,18 +5,19 @@ import { dataEncKey } from '../config';
 import { KYSELY, type Database } from '../db/database.module';
 import { mediaConfig } from './media-config';
 import { MediaMtxClient, type MtxPathConf } from './mediamtx.client';
-import { verifyStreamToken } from './stream-token';
+import { verifyShortToken, verifyStreamToken } from './stream-token';
 
 export interface StreamInfo {
   key: string;
-  kind: 'camera' | 'robot';
+  /** talk：對講音訊（瀏覽器推、轉接器拉；T-31 方案 A），不出現在播放清單 */
+  kind: 'camera' | 'robot' | 'talk';
   /** camera id 或 robot id */
   id: string;
   code: string;
   name: string;
   floorId: string;
-  /** rtsp：實際來源；test：測試影像源；null：沒有來源（不建路徑） */
-  source: 'rtsp' | 'test' | null;
+  /** rtsp：實際來源；test：測試影像源；publisher：由人推流（對講）；null：沒有來源（不建路徑） */
+  source: 'rtsp' | 'test' | 'publisher' | null;
 }
 
 /** MediaMTX 回呼的內容（authMethod: http） */
@@ -39,6 +40,10 @@ export const DOWN_AFTER_MS = 15_000;
 
 /** 機器人前鏡頭的路徑 */
 export const robotStreamKey = (code: string) => `robot/${code}/front`;
+/** 對講音訊的路徑（影像與整合 §2 方案 A：talk/{robotCode}） */
+export const talkStreamKey = (code: string) => `talk/${code}`;
+/** 轉接器拉對講音訊時的 RTSP 帳號；密碼是後端核發的 read 憑證 */
+export const TALK_READER = 'talk';
 
 /**
  * 影像路徑（工程開發手冊「影像與整合」§1、T-29）。
@@ -81,7 +86,9 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   /** 目前可播放的路徑（依樓層） */
   async list(floor?: string): Promise<StreamInfo[]> {
     if (!this.catalog.size) await this.loadCatalog();
-    return [...this.catalog.values()].filter((s) => (!floor || s.floorId === floor) && s.source !== null).sort((a, b) => a.key.localeCompare(b.key));
+    return [...this.catalog.values()]
+      .filter((s) => (!floor || s.floorId === floor) && s.source !== null && s.kind !== 'talk')
+      .sort((a, b) => a.key.localeCompare(b.key));
   }
 
   async get(key: string): Promise<StreamInfo | undefined> {
@@ -101,8 +108,15 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   authorize(req: MediaAuthRequest, now = Date.now()): boolean {
     const cfg = mediaConfig();
     if (req.user === cfg.internalUser && req.password === cfg.internalPassword && req.user && req.password) return true;
-    if (req.action !== 'read' || !req.path) return false;
+    if (!req.path) return false;
     const token = req.token || new URLSearchParams(req.query ?? '').get('token') || req.password || undefined;
+    // 對講：瀏覽器帶 publish 憑證推流；轉接器以帳號 talk＋read 憑證拉流。其他人（含播放憑證）一律不行
+    if (req.path.startsWith('talk/')) {
+      if (req.action === 'publish') return !!verifyStreamToken(token, req.path, now, 'publish');
+      if (req.action === 'read') return req.user === TALK_READER && verifyShortToken(req.password, req.path, 'read', now);
+      return false;
+    }
+    if (req.action !== 'read') return false;
     if (!verifyStreamToken(token, req.path, now)) return false;
     this.markWanted(req.path, now);
     return true;
@@ -182,7 +196,7 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
       .select(sql<boolean>`length(rtsp_url) > 0`.as('has_rtsp'))
       .where('enabled', '=', true)
       .execute();
-    const robots = await this.db.selectFrom('robots').select(['id', 'code', 'floor_id']).where('enabled', '=', true).execute();
+    const robots = await this.db.selectFrom('robots').select(['id', 'code', 'floor_id', 'caps']).where('enabled', '=', true).execute();
     const test = mediaConfig().testSource;
     const next = new Map<string, StreamInfo>();
     for (const c of cams) {
@@ -192,12 +206,19 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     for (const r of robots) {
       const key = robotStreamKey(r.code);
       next.set(key, { key, kind: 'robot', id: r.id, code: r.code, name: `${r.code} 前鏡頭`, floorId: r.floor_id, source: test ? 'test' : null });
+      // 能接收即時音訊的機器人：建對講路徑（只允許一個推流者）
+      if (r.caps.includes('talk_live')) {
+        const tk = talkStreamKey(r.code);
+        next.set(tk, { key: tk, kind: 'talk', id: r.id, code: r.code, name: `${r.code} 對講`, floorId: r.floor_id, source: 'publisher' });
+      }
     }
     this.catalog = next;
   }
 
   private async confOf(s: StreamInfo): Promise<MtxPathConf | null> {
     if (s.source === 'test') return testSourceConf();
+    // pathDefaults 是 sourceOnDemand: yes，推流路徑要明確關掉（MediaMTX 會拒絕）
+    if (s.source === 'publisher') return { source: 'publisher', sourceOnDemand: false, overridePublisher: false };
     if (s.source !== 'rtsp' || s.kind !== 'camera') return null;
     const row = await this.db
       .selectFrom('cameras')

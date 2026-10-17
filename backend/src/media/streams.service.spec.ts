@@ -3,7 +3,7 @@ import type { AlarmsService } from '../alarms/alarms.service';
 import type { Database } from '../db/database.module';
 import { mediaConfig } from './media-config';
 import type { MediaMtxClient, MtxPathState } from './mediamtx.client';
-import { issueStreamToken } from './stream-token';
+import { issueShortToken, issueStreamToken } from './stream-token';
 import { DOWN_AFTER_MS, StreamsService } from './streams.service';
 
 function make(states: () => MtxPathState[]) {
@@ -32,6 +32,34 @@ describe('MediaMTX 播放權限回呼', () => {
     expect(svc.authorize({ action: 'publish', path: 'cam/CAM-1', user: internalUser, password: internalPassword })).toBe(true);
     expect(svc.authorize({ action: 'read', path: 'cam/CAM-1', user: internalUser, password: 'wrong' })).toBe(false);
     expect(svc.authorize({ action: 'publish', path: 'cam/CAM-1', user: '', password: '' })).toBe(false);
+  });
+});
+
+describe('對講路徑 talk/{代碼} 的權限（T-31 方案 A）', () => {
+  const { svc } = make(() => []);
+  const pub = issueStreamToken('talk/B2-001', 'u1', Date.now(), { action: 'publish' }).token;
+  const read = issueShortToken('talk/B2-001', 'read', 60);
+  it('瀏覽器帶 publish 憑證才能推；播放憑證、別台的憑證都不行', () => {
+    expect(svc.authorize({ action: 'publish', path: 'talk/B2-001', protocol: 'webrtc', query: `token=${pub}` })).toBe(true);
+    expect(svc.authorize({ action: 'publish', path: 'talk/B2-001', query: `token=${read}` })).toBe(false);
+    expect(svc.authorize({ action: 'publish', path: 'talk/B2-002', query: `token=${pub}` })).toBe(false);
+  });
+  it('轉接器的短憑證：約 33 字（ffmpeg 帳密上限 128 bytes）、過期或換路徑不行', () => {
+    expect(read.length).toBeLessThan(40);
+    expect(svc.authorize({ action: 'read', path: 'talk/B2-002', user: 'talk', password: read })).toBe(false);
+    const old = issueShortToken('talk/B2-001', 'read', 60, Date.now() - 120_000);
+    expect(svc.authorize({ action: 'read', path: 'talk/B2-001', user: 'talk', password: old })).toBe(false);
+    const forged = read.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A'));
+    expect(svc.authorize({ action: 'read', path: 'talk/B2-001', user: 'talk', password: forged })).toBe(false);
+  });
+  it('轉接器以帳號 talk＋read 憑證拉；拿 publish 憑證或其他帳號不行（不能旁聽）', () => {
+    expect(svc.authorize({ action: 'read', path: 'talk/B2-001', protocol: 'rtsp', user: 'talk', password: read })).toBe(true);
+    expect(svc.authorize({ action: 'read', path: 'talk/B2-001', user: 'talk', password: pub })).toBe(false);
+    expect(svc.authorize({ action: 'read', path: 'talk/B2-001', query: `token=${read}` })).toBe(false);
+  });
+  it('publish 憑證不能用來播放影像', () => {
+    const p = issueStreamToken('cam/CAM-1', 'u1', Date.now(), { action: 'publish' }).token;
+    expect(svc.authorize({ action: 'read', path: 'cam/CAM-1', token: p })).toBe(false);
   });
 });
 
