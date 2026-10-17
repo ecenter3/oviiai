@@ -1,3 +1,4 @@
+import { PERM_TREE } from '@oviiai/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError, download } from '../../api/client';
@@ -15,6 +16,8 @@ interface Change {
 }
 export interface Preview {
   version: number;
+  mode: 'merge' | 'sync';
+  blocked: { role: string; missing: string[] }[];
   summary: Record<Action, number>;
   sections: { entity: string; changes: Change[] }[];
   warnings: string[];
@@ -29,10 +32,18 @@ const tr = (prefix: string, k: string) => {
   return s === key ? k : s;
 };
 
-async function send(file: File, dryRun: boolean): Promise<Preview> {
+/** 同步刪除模式套用前要輸入的確認字（後端也檢查） */
+export const SYNC_WORD = '刪除';
+const PERM_NAME = new Map<string, string>(PERM_TREE.flatMap((g) => g.children.map((c) => [c.code, c.name] as [string, string])));
+
+async function send(file: File, opts: { dryRun: boolean; sync: boolean; confirm?: string }): Promise<Preview> {
   const body = new FormData();
   body.append('file', file);
-  return api<Preview>(`/site/import${dryRun ? '?dryRun=true' : ''}`, { method: 'POST', body });
+  const q = new URLSearchParams();
+  if (opts.dryRun) q.set('dryRun', 'true');
+  if (opts.sync) q.set('mode', 'sync');
+  if (opts.confirm) q.set('confirm', opts.confirm);
+  return api<Preview>(`/site/import${q.size ? `?${q}` : ''}`, { method: 'POST', body });
 }
 
 /**
@@ -47,6 +58,8 @@ export function SitePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
+  /** 同步刪除（PR #14 審查第 2 點）：預設不勾，只新增、修改 */
+  const [sync, setSync] = useState(false);
 
   async function exportZip() {
     setBusy(true);
@@ -60,12 +73,12 @@ export function SitePage() {
     }
   }
 
-  async function run(dryRun: boolean) {
+  async function run(dryRun: boolean, word?: string) {
     if (!file) return;
     setBusy(true);
     setError(null);
     try {
-      const p = await send(file, dryRun);
+      const p = await send(file, { dryRun, sync, confirm: word });
       setPreview(p);
       if (!dryRun) {
         useToast.getState().show(t('site.applied', p.summary), 'ok');
@@ -114,13 +127,27 @@ export function SitePage() {
               setError(null);
             }}
           />
+          <label className="sync-opt">
+            <input
+              type="checkbox"
+              checked={sync}
+              onChange={(e) => {
+                setSync(e.target.checked);
+                setPreview(null);
+              }}
+            />
+            <span>
+              <b>{t('site.sync')}</b>
+              <small>{t('site.sync.body')}</small>
+            </span>
+          </label>
           {!canApply && <p className="notice">{t('site.import.noPerm')}</p>}
           <div className="row">
             <button type="button" className="btn" disabled={!file || busy} onClick={() => void run(true)}>
               {t('site.preview')}
             </button>
             {canApply && (
-              <button type="button" className="btn primary" disabled={!preview || preview.applied || busy} onClick={() => setConfirm(true)}>
+              <button type="button" className="btn primary" disabled={!preview || preview.applied || preview.blocked.length > 0 || busy} onClick={() => setConfirm(true)}>
                 {t('site.apply')}
               </button>
             )}
@@ -136,14 +163,28 @@ export function SitePage() {
           <section className="dcard wide" aria-label={preview.applied ? t('site.diff.applied') : t('site.diff')}>
             <h3>
               {preview.applied ? t('site.diff.applied') : t('site.diff')}
+              <span className="badge2">{t(`site.mode.${preview.mode}`)}</span>
               <span className="chips">
                 {ACTIONS.filter((a) => preview.summary[a]).map((a) => (
-                  <span key={a} className={`badge2 ${TONE[a]}`}>
+                  <span key={a} className={`badge2 ${TONE[a]}${a === 'delete' || a === 'disable' ? ' danger-count' : ''}`}>
                     {t(`site.action.${a}`)} {preview.summary[a]}
                   </span>
                 ))}
               </span>
             </h3>
+            {preview.blocked.length > 0 && (
+              <div className="site-blocked" role="alert">
+                <b>{t('site.blocked')}</b>
+                <ul>
+                  {preview.blocked.map((b) => (
+                    <li key={b.role}>
+                      {b.role}：{b.missing.map((p) => PERM_NAME.get(p) ?? p).join('、')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {preview.mode === 'sync' && destructive > 0 && !preview.applied && <p className="danger-line">{t('site.sync.warn', { n: destructive })}</p>}
             {preview.warnings.length > 0 && (
               <ul className="site-warn">
                 {preview.warnings.map((w) => (
@@ -187,7 +228,18 @@ export function SitePage() {
           </section>
         )}
       </div>
-      {confirm && preview && (
+      {confirm && preview && preview.mode === 'sync' && destructive > 0 && (
+        <TypedConfirm
+          n={destructive}
+          summary={preview.summary}
+          onCancel={() => setConfirm(false)}
+          onConfirm={(word) => {
+            setConfirm(false);
+            void run(false, word);
+          }}
+        />
+      )}
+      {confirm && preview && !(preview.mode === 'sync' && destructive > 0) && (
         <ConfirmDialog
           title={t('site.apply')}
           body={t('site.confirm', { ...preview.summary, extra: destructive ? t('site.confirm.destructive') : '' })}
@@ -203,3 +255,30 @@ export function SitePage() {
     </div>
   );
 }
+
+/** 同步刪除：輸入確認字才能套用 */
+function TypedConfirm(props: { n: number; summary: Record<Action, number>; onConfirm(word: string): void; onCancel(): void }) {
+  const [word, setWord] = useState('');
+  return (
+    <div className="modal-bg" onKeyDown={(e) => e.key === 'Escape' && props.onCancel()}>
+      <div className="modal" role="alertdialog" aria-modal="true" aria-label={t('site.apply')}>
+        <h2>{t('site.apply')}</h2>
+        <p>{t('site.confirm', { ...props.summary, extra: t('site.confirm.destructive') })}</p>
+        <p className="danger-line">{t('site.sync.warn', { n: props.n })}</p>
+        <label className="fl">
+          {t('site.sync.type', { word: SYNC_WORD })}
+          <input autoFocus value={word} onChange={(e) => setWord(e.target.value)} />
+        </label>
+        <div className="row">
+          <button type="button" className="btn" onClick={props.onCancel}>
+            {t('common.cancel')}
+          </button>
+          <button type="button" className="btn danger solid" disabled={word.trim() !== SYNC_WORD} onClick={() => props.onConfirm(word.trim())}>
+            {t('site.apply')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

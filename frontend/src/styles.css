@@ -773,3 +773,11 @@ label.arow { cursor: pointer; }
 .setup-embed { flex: 1; min-height: 520px; overflow: auto; }
 .setup-embed > .pg2, .setup-embed > .page { height: auto; min-height: 520px; }
 @media (max-width: 900px) { .setup { grid-template-columns: 1fr; height: auto; } }
+.sync-opt { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 12px; font-size: 13px; cursor: pointer; }
+.sync-opt span { display: flex; flex-direction: column; gap: 2px; }
+.sync-opt small { color: var(--fg-3); font-size: 12px; }
+.badge2.danger-count { color: #fecaca; border-color: rgba(239,68,68,.7); background: rgba(239,68,68,.2); font-weight: 700; }
+.danger-line { color: #f87171; font-weight: 700; font-size: 13px; margin: 0 0 10px; }
+.site-blocked { margin: 0 0 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(239,68,68,.6); background: rgba(239,68,68,.1); color: #fecaca; font-size: 13px; }
+.site-blocked ul { margin: 6px 0 0; padding-left: 18px; }
+.modal .fl input { width: 100%; margin-top: 6px; padding: 7px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
