@@ -58,14 +58,16 @@ services:
     mem_limit: 512m
 
   mediamtx:
-    image: bluenviron/mediamtx:1.19.3
+    # -ffmpeg 版：開發時沒有攝影機，用 ffmpeg 測試影像源（testsrc）模擬（後端 MEDIA_TEST_SOURCE）
+    image: bluenviron/mediamtx:1.19.3-ffmpeg
     profiles: ["media"]
     restart: unless-stopped
     ports:
-      - "8554:8554"       # RTSP
+      - "8554:8554"       # RTSP（後端抓拍、錄影讀這裡）
       - "8889:8889"       # WebRTC (WHEP)
-      - "8189:8189/udp"   # WebRTC ICE
-      - "9997:9997"       # API
+      - "8189:8189"       # WebRTC ICE（TCP）
+      - "9997:9997"       # Control API
+    extra_hosts: ["host.docker.internal:host-gateway"]   # 回呼開發機上的後端
     volumes: [./mediamtx.yml:/mediamtx.yml:ro]
     mem_limit: 512m
 

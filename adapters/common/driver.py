@@ -29,6 +29,37 @@ class RobotDriver(ABC):
         self.to_platform = self.to_robot.inverse()  # 機器人地圖座標 -> 平台座標
         self.events: asyncio.Queue[RobotEvent] = asyncio.Queue()
         self.task_ref: str | None = None
+        #: bridge 每次讀遙測後記下的狀態（判斷能不能換座標轉換）
+        self.last_state: str | None = None
+        self._pending: Affine2D | None = None
+
+    # ---- 座標校正（後端 /adapter-config 的 calib；PR #11 審查第 2 點）----
+    MOVING_STATES = frozenset({"navigating", "patrolling", "returning", "teleop"})
+
+    def set_transform(self, to_robot: Affine2D) -> None:
+        """立即換轉換（啟動時、或確定機器人沒在動時）"""
+        self.to_robot = to_robot
+        self.to_platform = to_robot.inverse()
+        self._pending = None
+
+    def request_transform(self, to_robot: Affine2D) -> None:
+        """後端校正有變：先記著，等這台不在移動（或下一個移動指令開始）才換，
+        避免導航途中換轉換、目標座標跳掉"""
+        self._pending = None if to_robot == self.to_robot else to_robot
+
+    @property
+    def pending_transform(self) -> Affine2D | None:
+        return self._pending
+
+    def is_moving(self) -> bool:
+        return self.last_state in self.MOVING_STATES
+
+    def apply_pending_transform(self, force: bool = False) -> bool:
+        """有待套用的轉換且（不在移動或 force）→ 套用，回 True"""
+        if self._pending is None or (not force and self.is_moving()):
+            return False
+        self.set_transform(self._pending)
+        return True
 
     # ---- 生命週期 ----
     @abstractmethod

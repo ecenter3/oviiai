@@ -20,13 +20,14 @@ export interface RetentionResult {
   alarms: number;
   oplogs: number;
   tasks: number;
+  media: number;
   files: string[];
 }
 
 /**
  * 資料保存期限（工程開發手冊「資料庫」§7：任務、告警、操作日誌 1 年；PR #9 審查第 4 點、PR #10 審查第 6 點）。
  * 每日排程：超過 1 年的已結束告警（連同處理歷程）、已結束任務（連同任務歷程）與操作日誌，
- * 先匯出 CSV 存到物件儲存 retention/ 備查，成功才刪除。
+ * 先匯出 CSV 存到物件儲存 retention/ 備查，成功才刪除；抓拍錄影 30 天（告警關聯的 1 年）直接刪檔。
  */
 @Injectable()
 export class RetentionService implements OnModuleInit, OnModuleDestroy {
@@ -126,6 +127,19 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // 抓拍、錄影（資料庫 §7：媒體 30 天；告警關聯的保存 1 年）：刪物件儲存的檔案與紀錄，不另匯出
+    const mediaCut = new Date(now.getTime() - 30 * 86_400_000);
+    const media = await this.db
+      .selectFrom('media')
+      .select(['id', 'object_key'])
+      .where('kind', 'in', ['snapshot', 'clip'])
+      .where((eb) => eb.or([eb.and([eb('alarm_id', 'is', null), eb('created_at', '<', mediaCut)]), eb('created_at', '<', cutoff)]))
+      .orderBy('created_at')
+      .limit(MAX_ROWS)
+      .execute();
+    for (const m of media) await this.storage.remove(m.object_key).catch(() => undefined);
+    if (media.length) await this.db.deleteFrom('media').where('id', 'in', media.map((m) => m.id)).execute();
+
     // 操作日誌
     const logs = await this.db.selectFrom('op_logs').selectAll().where('at', '<', cutoff).orderBy('at').limit(MAX_ROWS).execute();
     if (logs.length) {
@@ -137,9 +151,9 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       await this.db.deleteFrom('op_logs').where('id', 'in', logs.map((l) => l.id)).execute();
     }
 
-    if (alarms.length || logs.length || tasks.length) {
-      this.log.log(`清除超過 1 年的告警 ${alarms.length} 筆、任務 ${tasks.length} 筆、操作日誌 ${logs.length} 筆，備查檔：${files.join('、')}`);
+    if (alarms.length || logs.length || tasks.length || media.length) {
+      this.log.log(`清除超過保存期限：告警 ${alarms.length}、任務 ${tasks.length}、操作日誌 ${logs.length}、抓拍錄影 ${media.length} 筆，備查檔：${files.join('、')}`);
     }
-    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, files };
+    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, media: media.length, files };
   }
 }

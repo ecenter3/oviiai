@@ -1,4 +1,4 @@
-# 正式環境 Nginx 範例（工程開發手冊「測試與部署」§3）。複製到 deploy/nginx/ 後依現場修改：
+# 正式環境 Nginx 範例（工程開發手冊「測試與部署」§3）。複製到 deploy/nginx/ 後依現場修改（security-headers.conf 掛到 /etc/nginx/snippets/）：
 #   - 憑證路徑、server_name
 #   - 轉接器所在網段（adapter-config 只開放給它）
 #   - 控制室網段（整個平台只給控制室與管理網段連）
@@ -22,19 +22,30 @@ server {
     # 平面圖上傳上限 15 MB（後端也會檢查）
     client_max_body_size 16m;
 
-    # 安全標頭
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header Referrer-Policy same-origin always;
+    # 安全標頭（location 內有自己的 add_header 時要再 include 一次）
+    include /etc/nginx/snippets/security-headers.conf;
 
-    location = /api/v1/adapter-config { return 404; }
-    location ^~ /api/v1/adapter-config/ {
+    # 後端 Express 路由不分大小寫：用 ~*（不分大小寫的正規式），/API/V1/Adapter-Config/ 也會落進來。
+    # 後端另外以 ADAPTER_ALLOWED_CIDRS 檢查來源，兩層都擋（PR #11 審查第 1 點）
+    location ~* ^/api/v1/adapter-config(/|$) {
         if ($adapter_net = 0) { return 403; }
-        # 不寫存取日誌的查詢字串以外內容；回應含密碼，禁止快取
+        # 回應含解密後的密碼：禁止快取
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "no-store" always;
         proxy_pass http://api;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
+    }
+
+    # MediaMTX 的播放權限回呼只給 MediaMTX 容器直連後端，不經 Nginx
+    location ~* ^/internal(/|$) { return 404; }
+
+    # 影像（WebRTC WHEP）：轉給 MediaMTX，播放憑證由後端核發、MediaMTX 回呼後端驗證（T-29）
+    location /media/ {
+        proxy_pass http://mediamtx:8889/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        client_max_body_size 1m;
     }
 
     location /api/ {

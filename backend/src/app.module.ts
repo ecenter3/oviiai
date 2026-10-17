@@ -18,12 +18,13 @@ import { SettingsModule } from './settings/settings.module';
 import { MapsModule } from './maps/maps.module';
 import { UsersModule } from './users/users.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
+import { MediaModule } from './media/media.module';
 import { NavModule } from './nav/nav.module';
 import { SiteModule } from './site/site.module';
 import { StorageModule } from './storage/storage.module';
 
 // 模組依工程開發手冊「後端」章節逐步加入：
-// media, face, reports, integrations
+// face, reports, integrations
 @Module({
   imports: [
     DatabaseModule,
@@ -45,6 +46,7 @@ import { StorageModule } from './storage/storage.module';
     NavModule,
     SiteModule,
     CalibrationModule,
+    MediaModule,
     MaintenanceModule,
     RealtimeModule,
   ],

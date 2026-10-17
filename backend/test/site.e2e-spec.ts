@@ -136,6 +136,29 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
       expect(cfg.robots).toEqual([expect.objectContaining({ code: CODE, floor: FLOOR, secret: 'robot-pass', conn: { host: '10.0.0.8', port: 9000 } })]);
     });
 
+    it('來源網段不在 ADAPTER_ALLOWED_CIDRS → 403，大寫路徑也一樣；正式環境沒設定一律 403（PR #11 審查第 1 點）', async () => {
+      const before = { cidrs: process.env.ADAPTER_ALLOWED_CIDRS, env: process.env.NODE_ENV };
+      try {
+        process.env.ADAPTER_ALLOWED_CIDRS = '10.99.0.0/16';
+        for (const path of [`/api/v1/adapter-config/${ADAPTER}`, `/api/v1/Adapter-Config/${ADAPTER}`, `/api/v1/ADAPTER-CONFIG/${ADAPTER}`]) {
+          const r = await http().get(path).set('X-Adapter-Key', ADAPTER_KEY).expect(403);
+          expect(r.body.error.code).toBe('FORBIDDEN');
+          expect(JSON.stringify(r.body)).not.toContain('robot-pass');
+        }
+        // 允許的網段：Express 路由不分大小寫，大寫路徑一樣打到這個端點——所以後端一定要自己擋
+        process.env.ADAPTER_ALLOWED_CIDRS = '127.0.0.1/32,::1/128';
+        await http().get(`/api/v1/Adapter-Config/${ADAPTER}`).set('X-Adapter-Key', ADAPTER_KEY).expect(200);
+        delete process.env.ADAPTER_ALLOWED_CIDRS;
+        process.env.NODE_ENV = 'production';
+        await http().get(`/api/v1/adapter-config/${ADAPTER}`).set('X-Adapter-Key', ADAPTER_KEY).expect(403);
+      } finally {
+        if (before.cidrs === undefined) delete process.env.ADAPTER_ALLOWED_CIDRS;
+        else process.env.ADAPTER_ALLOWED_CIDRS = before.cidrs;
+        if (before.env === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = before.env;
+      }
+    });
+
     it('轉接器金鑰錯誤或沒設定 → 401', async () => {
       await http().get(`/api/v1/adapter-config/${ADAPTER}`).set('X-Adapter-Key', 'wrong-key-wrong-key').expect(401);
       await http().get(`/api/v1/adapter-config/${ADAPTER}`).expect(401);
@@ -225,7 +248,7 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
         .executeTakeFirstOrThrow();
       expect(row.rtsp_url.toString('latin1')).not.toContain('cam-secret');
       expect(row.plain).toBe('rtsp://admin:cam-secret@10.0.0.20/stream1');
-      expect(row.stream_key).toBe(`cam-${code.toLowerCase()}`);
+      expect(row.stream_key).toBe(`cam/${code}`);
       const list = (await as(viewer, http().get(`/api/v1/cameras?floor=${FLOOR}`)).expect(200)).body;
       expect(list[0]).toMatchObject({ code, hasRtsp: true });
       expect(JSON.stringify(list)).not.toContain('cam-secret');

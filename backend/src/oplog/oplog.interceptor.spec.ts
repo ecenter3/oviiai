@@ -95,6 +95,14 @@ describe('summarize', () => {
     expect(JSON.stringify(r)).not.toMatch(/cam-secret|p%40ss|pw@|secret-pw|onlyuser/);
   });
 
+  it('密碼含沒編碼的 @：遮到最後一個 @，不外漏（PR #11 審查第 3 點）', () => {
+    expect(summarize({ note: '新位址 rtsp://admin:p@ss@10.0.0.20/s1，舊的 rtsp://u:a@b@c@h2:554/x' })).toEqual({
+      note: '新位址 rtsp://***:***@10.0.0.20/s1，舊的 rtsp://***:***@h2:554/x',
+    });
+    // 路徑或查詢字串裡的 @ 不是帳密，不動
+    expect(summarize({ note: 'http://host/a@b 與 mailto 寄 ops@example.com' })).toEqual({ note: 'http://host/a@b 與 mailto 寄 ops@example.com' });
+  });
+
   it('欄位名稱含 url、rtsp 的整個遮掉', () => {
     expect(summarize({ planUrl: 'x', rtsp: 'y', name: 'ok' })).toEqual({ planUrl: '***', rtsp: '***', name: 'ok' });
   });

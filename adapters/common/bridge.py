@@ -144,6 +144,10 @@ class Bridge:
                 try:
                     t = await d.read_telemetry()
                     await self.publish(topics.telemetry(d.code), _json(t))
+                    d.last_state = t.state
+                    # 新的座標校正：等機器人不在移動時才套用（下一筆遙測就用新轉換）
+                    if d.apply_pending_transform():
+                        log.info("%s 套用新的座標校正", d.code)
                 except Exception as e:
                     log.warning("%s telemetry failed: %s", d.code, e)
             await asyncio.sleep(TELEMETRY_PERIOD_S)
@@ -224,6 +228,9 @@ class Bridge:
 
     async def _run_cmd(self, d: RobotDriver, cmd: Command) -> None:
         try:
+            # 移動指令開始前一定換成最新的校正：目標座標用新的轉換換算
+            if cmd.type in MOVE_COMMANDS and d.apply_pending_transform(force=True):
+                log.info("%s 送 %s 前套用新的座標校正", d.code, cmd.type)
             coro = d.execute(cmd)
             result = await (asyncio.wait_for(coro, cmd.timeoutSec) if cmd.timeoutSec else coro)
             await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="done", result=result))

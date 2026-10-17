@@ -2,41 +2,36 @@
 
 有轉接器金鑰（環境變數或 repo 根目錄 .env 的 ADAPTER_KEY_MOCK）時，機器人清單改從後端
 GET /api/v1/adapter-config/mock 取得（機器人接入 §3），每 10 秒同步一次：在「機器人管理」新增
-adapter=mock 的機器人，模擬器就會跟著出現；停用則移除。robots.yaml 只提供已知機器人的初始位置與參數。
+adapter=mock 的機器人，模擬器就會跟著出現；停用則移除；座標校正有變就套用（機器人不在移動時）。
+robots.yaml 只提供已知機器人的初始位置與參數。
 後端連不上時沿用 robots.yaml。
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import os
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from common.bridge import Bridge
+from common.config_sync import (
+    adapter_key,
+    backend_url,
+    fetch_config,
+    load_dotenv,
+    request_calibrations,
+    transform_of,
+)
 
 from .driver import MockDriver
 
 log = logging.getLogger("mock")
 SYNC_PERIOD_S = 10
 ADAPTER = "mock"
-
-
-def load_dotenv(path: Path) -> None:
-    """讀 repo 根目錄的 .env（已存在的環境變數不覆蓋）"""
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
 
 
 def driver_spec(robot: dict[str, Any], defaults: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -46,11 +41,12 @@ def driver_spec(robot: dict[str, Any], defaults: dict[str, dict[str, Any]]) -> d
     if code in defaults:
         spec = dict(defaults[code])
         spec["floor"] = robot["floor"]
+        spec["to_robot"] = transform_of(robot)
         return spec
     chargers = robot.get("chargers") or []
     dock = {"x": float(chargers[0]["x"]), "y": float(chargers[0]["y"])} if chargers else {"x": 5.0, "y": 5.0}
     return {"code": code, "floor": robot["floor"], "x": dock["x"] + 2, "y": dock["y"], "battery": 80,
-            "speed": 1.0, "dock": dock}
+            "speed": 1.0, "dock": dock, "to_robot": transform_of(robot)}
 
 
 def plan_sync(current: set[str], robots: list[dict[str, Any]],
@@ -62,22 +58,18 @@ def plan_sync(current: set[str], robots: list[dict[str, Any]],
     return add, remove
 
 
-def fetch_config(base: str, key: str) -> list[dict[str, Any]]:
-    req = urllib.request.Request(f"{base}/adapter-config/{ADAPTER}", headers={"X-Adapter-Key": key})
-    with urllib.request.urlopen(req, timeout=5) as r:  # noqa: S310 — 位址來自設定
-        return json.loads(r.read().decode("utf-8"))["robots"]
-
-
 async def sync_loop(bridge: Bridge, base: str, key: str, defaults: dict[str, dict[str, Any]]) -> None:
     warned = False
     while True:
         try:
-            robots = await asyncio.to_thread(fetch_config, base, key)
+            robots = await asyncio.to_thread(fetch_config, base, ADAPTER, key)
             add, remove = plan_sync(set(bridge.drivers), robots, defaults)
             for spec in add:
                 await bridge.add_driver(MockDriver(**spec))
             for code in remove:
                 await bridge.remove_driver(code)
+            for code in request_calibrations(bridge.drivers, robots):
+                log.info("%s 座標校正有更新，機器人不在移動時套用", code)
             warned = False
         except Exception as e:  # 後端暫時連不上：維持目前的清單
             if not warned:
@@ -88,12 +80,12 @@ async def sync_loop(bridge: Bridge, base: str, key: str, defaults: dict[str, dic
 
 async def amain(cfg: dict[str, Any]) -> None:
     defaults = {r["code"]: r for r in cfg["robots"]}
-    key = os.getenv("ADAPTER_KEY_MOCK", "")
-    base = os.getenv("BACKEND_URL", "http://localhost:3000/api/v1").rstrip("/")
+    key = adapter_key(ADAPTER)
+    base = backend_url()
     drivers: list[MockDriver]
     if key:
         try:
-            robots = await asyncio.to_thread(fetch_config, base, key)
+            robots = await asyncio.to_thread(fetch_config, base, ADAPTER, key)
             drivers = [MockDriver(**driver_spec(r, defaults)) for r in robots]
             log.info("從後端取得 %d 台機器人設定", len(drivers))
         except Exception as e:

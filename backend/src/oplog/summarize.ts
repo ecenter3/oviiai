@@ -5,8 +5,11 @@
  * - 任何字串裡的「協定://帳號:密碼@」→ 帳密換成 ***:***（PR #10 審查第 1 點：攝影機 RTSP 帳密曾以明文寫進日誌）
  */
 const SECRET_KEY = /pass(word)?|token|secret|key|credential|rtsp|url/i;
-/** scheme://user:pass@host → scheme://***:***@host（帳號或密碼任一段都遮） */
-const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
+/**
+ * scheme://user:pass@host → scheme://***:***@host（帳號或密碼任一段都遮）。
+ * 貪婪比對到 host 前「最後一個 @」：密碼含沒編碼的 @（rtsp://admin:p@ss@host）也整段遮掉（PR #11 審查第 3 點）。
+ */
+const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/]*@/gi;
 const MAX_JSON = 2000;
 
 /** 參數摘要：遮蔽秘密；過長只留前段 */

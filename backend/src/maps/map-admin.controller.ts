@@ -8,6 +8,7 @@ import { PG_FK_VIOLATION, PG_UNIQUE_VIOLATION, pgCode } from '../common/pg-error
 import { ZodPipe } from '../common/zod.pipe';
 import { dataEncKey } from '../config';
 import { KYSELY, type Database } from '../db/database.module';
+import { StreamsService } from '../media/streams.service';
 import { OpLog } from '../oplog/oplog.decorator';
 import { BRANDS } from '../site/robot-admin.controller';
 
@@ -51,7 +52,10 @@ const target = (kind: string) => (req: Request, res?: unknown) =>
  */
 @Controller()
 export class MapAdminController {
-  constructor(@Inject(KYSELY) private readonly db: Database) {}
+  constructor(
+    @Inject(KYSELY) private readonly db: Database,
+    private readonly streams: StreamsService,
+  ) {}
 
   @Post('chargers')
   @RequirePerm('maps')
@@ -109,7 +113,7 @@ export class MapAdminController {
   @OpLog('camera.create', target('camera'))
   async createCamera(@Body(new ZodPipe(CameraBody)) b: z.infer<typeof CameraBody>) {
     await this.checkPoint(b.floorId, b.x, b.y);
-    return this.unique(b.code, () =>
+    return this.afterCamera(this.unique(b.code, () =>
       this.db
         .insertInto('cameras')
         .values({
@@ -124,7 +128,7 @@ export class MapAdminController {
         })
         .returning(['id', 'code'])
         .executeTakeFirstOrThrow(),
-    );
+    ));
   }
 
   @Patch('cameras/:id')
@@ -134,7 +138,7 @@ export class MapAdminController {
     const cur = await this.db.selectFrom('cameras').select(['floor_id', 'x', 'y']).where('id', '=', id).executeTakeFirst();
     if (!cur) throw new AppError('NOT_FOUND', '找不到攝影機');
     if (b.floorId !== undefined || b.x !== undefined || b.y !== undefined) await this.checkPoint(b.floorId ?? cur.floor_id, b.x ?? cur.x, b.y ?? cur.y);
-    return this.unique(b.code ?? '', () =>
+    return this.afterCamera(this.unique(b.code ?? '', () =>
       this.db
         .updateTable('cameras')
         .set({
@@ -149,7 +153,14 @@ export class MapAdminController {
         .where('id', '=', id)
         .returning(['id', 'code'])
         .executeTakeFirstOrThrow(),
-    );
+    ));
+  }
+
+  /** 攝影機有變：MediaMTX 路徑跟著新增、更新、移除（影像與整合 §1） */
+  private async afterCamera<T>(p: Promise<T>): Promise<T> {
+    const r = await p;
+    void this.streams.sync();
+    return r;
   }
 
   /** 已被告警參照的攝影機不刪（告警保存 1 年），改用停用 */
@@ -161,6 +172,7 @@ export class MapAdminController {
     try {
       const r = await this.db.deleteFrom('cameras').where('id', '=', id).executeTakeFirst();
       if (!r.numDeletedRows) throw new AppError('NOT_FOUND', '找不到攝影機');
+      void this.streams.sync();
     } catch (e) {
       if (pgCode(e) === PG_FK_VIOLATION) throw new AppError('INVALID_STATE', '攝影機已有告警紀錄，請改為停用');
       throw e;
@@ -186,5 +198,5 @@ export class MapAdminController {
   }
 }
 
-/** MediaMTX 路徑名稱 */
-export const streamKey = (code: string) => `cam-${code.toLowerCase()}`;
+/** MediaMTX 路徑名稱（影像與整合 §1：cam/{攝影機代碼}） */
+export const streamKey = (code: string) => `cam/${code}`;

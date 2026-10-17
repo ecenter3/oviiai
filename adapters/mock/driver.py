@@ -12,6 +12,7 @@ from typing import Any
 
 from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop, now_ms
 from common.driver import CommandError, RobotDriver
+from common.transform import Affine2D
 
 TICK_S = 0.1
 
@@ -22,9 +23,13 @@ class MockDriver(RobotDriver):
 
     def __init__(self, code: str, floor: str, x: float = 0.0, y: float = 0.0, battery: float = 80.0,
                  speed: float = 1.0, dock: dict[str, float] | None = None, fail_rate: float = 0.0,
-                 teleop: bool = True, drain_per_m: float = 0.05, charge_rate: float = 0.5):
-        super().__init__(code, floor)
-        self.x, self.y, self.yaw = x, y, 0.0
+                 teleop: bool = True, drain_per_m: float = 0.05, charge_rate: float = 0.5,
+                 to_robot: Affine2D | None = None):
+        super().__init__(code, floor, to_robot)
+        # 模擬器在「機器人地圖座標」裡移動，回報時換成平台座標（與真機轉接器相同）；
+        # 參數給的初始位置是平台座標
+        self.x, self.y = self.to_robot.apply(x, y)
+        self.yaw = 0.0
         self.battery = battery
         self.max_speed = speed
         self.dock = dock or {"x": x, "y": y}
@@ -80,9 +85,10 @@ class MockDriver(RobotDriver):
         self.battery = max(0.0, self.battery - dist * self.drain_per_m)
 
     async def read_telemetry(self) -> Telemetry:
+        px, py = self.to_platform.apply(self.x, self.y)
         return Telemetry(
             ts=now_ms(),
-            pose=Pose(x=round(self.x, 3), y=round(self.y, 3), yaw=round(self.yaw, 3), floor=self.floor),
+            pose=Pose(x=round(px, 3), y=round(py, 3), yaw=round(self.to_platform.apply_yaw(self.yaw), 3), floor=self.floor),
             battery=Battery(pct=round(self.battery, 1), charging=self.state == "charging"),
             state=self.state, speed=round(self.speed, 2), taskRef=self.task_ref,
         )
@@ -150,17 +156,17 @@ class MockDriver(RobotDriver):
         self._go.set()  # 新的移動指令取代暫停中的舊導航
         try:
             if t == "navigate":
-                await self._goto(float(cmd.args["x"]), float(cmd.args["y"]), "navigating")
+                await self._goto(*self.to_robot.apply(float(cmd.args["x"]), float(cmd.args["y"])), "navigating")
                 self.emit(RobotEvent(ts=now_ms(), type="goal_reached", data={"cmdId": cmd.cmdId}))
             elif t == "patrol":
                 for i, pt in enumerate(cmd.args.get("points", [])):
-                    await self._goto(float(pt["x"]), float(pt["y"]), "patrolling")
+                    await self._goto(*self.to_robot.apply(float(pt["x"]), float(pt["y"])), "patrolling")
                     self.emit(RobotEvent(ts=now_ms(), type="waypoint_reached", data={"cmdId": cmd.cmdId, "index": i}))
             elif t == "charge":
                 # 後端排程指定充電樁時帶座標；沒帶就回自己設定的充電點
                 gx = float(cmd.args.get("x", self.dock["x"]))
                 gy = float(cmd.args.get("y", self.dock["y"]))
-                await self._goto(gx, gy, "returning")
+                await self._goto(*self.to_robot.apply(gx, gy), "returning")
                 self.state = "charging"
                 self.emit(RobotEvent(ts=now_ms(), type="charge_started"))
                 return None

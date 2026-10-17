@@ -23,16 +23,18 @@ INSERT INTO chargers (code, floor_id, x, y, brand) VALUES
  ('CHG-B1-1', 'b1', 2, 2, 'anbot'),   ('CHG-B1-2', 'b1', 2, 6, 'anbot')
 ON CONFLICT (code) DO NOTHING;
 
--- 攝影機點位（沒有影像來源：rtsp_url 空白，影像串接是 T-29）
+-- 攝影機點位（沒有影像來源：rtsp_url 空白，開發時 MediaMTX 用測試畫面代替，見 MEDIA_TEST_SOURCE）
 INSERT INTO cameras (code, name, floor_id, x, y, rtsp_url, stream_key) VALUES
- ('CAM-1F-01', '1F 大門',     '1f',  4, 32, ''::bytea, 'mock-cam-1f-01'),
- ('CAM-1F-02', '1F 走廊東',   '1f', 30, 18, ''::bytea, 'mock-cam-1f-02'),
- ('CAM-1F-03', '1F 會議室',   '1f', 18,  6, ''::bytea, 'mock-cam-1f-03'),
- ('CAM-2F-01', '2F 產線 A',   '2f', 12, 20, ''::bytea, 'mock-cam-2f-01'),
- ('CAM-2F-02', '2F 倉儲',     '2f', 40, 10, ''::bytea, 'mock-cam-2f-02'),
- ('CAM-B1-01', 'B1 車道入口', 'b1', 38, 24, ''::bytea, 'mock-cam-b1-01'),
- ('CAM-B1-02', 'B1 電梯廳',   'b1', 20,  4, ''::bytea, 'mock-cam-b1-02')
+ ('CAM-1F-01', '1F 大門',     '1f',  4, 32, ''::bytea, 'cam/CAM-1F-01'),
+ ('CAM-1F-02', '1F 走廊東',   '1f', 30, 18, ''::bytea, 'cam/CAM-1F-02'),
+ ('CAM-1F-03', '1F 會議室',   '1f', 18,  6, ''::bytea, 'cam/CAM-1F-03'),
+ ('CAM-2F-01', '2F 產線 A',   '2f', 12, 20, ''::bytea, 'cam/CAM-2F-01'),
+ ('CAM-2F-02', '2F 倉儲',     '2f', 40, 10, ''::bytea, 'cam/CAM-2F-02'),
+ ('CAM-B1-01', 'B1 車道入口', 'b1', 38, 24, ''::bytea, 'cam/CAM-B1-01'),
+ ('CAM-B1-02', 'B1 電梯廳',   'b1', 20,  4, ''::bytea, 'cam/CAM-B1-02')
 ON CONFLICT (code) DO NOTHING;
+-- 舊版種子的路徑名稱（mock-cam-…）改成 cam/{代碼}（影像與整合 §1）
+UPDATE cameras SET stream_key = 'cam/' || code WHERE stream_key LIKE 'mock-cam-%';
 
 -- 興趣點（派工目的地；新增修改是導航管理 T-23）。以樓層＋名稱判斷是否已存在
 INSERT INTO pois (floor_id, name, x, y)

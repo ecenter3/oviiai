@@ -582,3 +582,40 @@ fieldset.contents { display: contents; border: 0; }
 .cw-result.bad { border-color: rgba(239,68,68,.55); color: #fca5a5; background: rgba(239,68,68,.08); }
 .modal .row .push-right { margin-right: auto; }
 @media (max-width: 1100px) { .cw-body { grid-template-columns: minmax(0, 1fr); } }
+
+/* ===== 影像播放（T-29） ===== */
+.vplayer { position: relative; aspect-ratio: 16 / 9; border-radius: 6px; border: 1px solid var(--line); background: #050b14; overflow: hidden; }
+.vplayer video { width: 100%; height: 100%; object-fit: contain; display: block; background: #050b14; }
+.vplayer .vstatus { position: absolute; inset: 0; display: grid; place-items: center; padding: 12px; color: var(--fg-3); font-size: 12px; text-align: center; }
+.vplayer.retrying .vstatus { color: #fcd34d; }
+.vplayer .vlabel { position: absolute; left: 8px; top: 6px; padding: 2px 8px; border-radius: 3px; background: rgba(8,17,29,.75); color: var(--fg); font-size: 11px; }
+.vplayer.playing .vlabel::before { content: "● "; color: var(--ok); }
+.vplayer .vtools { position: absolute; right: 6px; bottom: 6px; display: flex; gap: 6px; }
+.vbtn { padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,255,255,.35); background: rgba(8,17,29,.75); color: var(--fg); font-size: 12px; cursor: pointer; }
+.vbtn:hover:not(:disabled) { border-color: var(--accent); }
+.vbtn:disabled { opacity: .5; cursor: default; }
+.vbtn.rec { border-color: var(--crit); color: #fecaca; background: rgba(90,18,32,.85); }
+.cam-live { padding: 10px 10px 0; }
+.drawer-video { margin-bottom: 12px; }
+/* ===== 抓拍圖片、錄像回放（T-28，原型 .gallery／.fcard） ===== */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; padding: 12px; }
+.gallery .wide { grid-column: 1 / -1; }
+.fcard { position: relative; padding: 8px; border-radius: 6px; border: 1px solid rgba(25,180,255,.35); background: var(--card); color: var(--fg); font-size: 12px; }
+.fcard:hover { border-color: var(--accent); }
+.fcard.sel { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,.35); }
+.fcard .thumb { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.fcard img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 3px; display: block; background: #0a1626; }
+.fcard .cap { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 6px; }
+.fcard .cap b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fcard .sub2 { margin-top: 2px; color: var(--fg-3); font-size: 11px; font-family: var(--font-data); }
+.fcard .tick { position: absolute; top: 12px; right: 12px; width: 22px; height: 22px; border-radius: 4px; background: rgba(0,0,0,.55); border: 1px solid #fff; display: grid; place-items: center; color: #fff; font-size: 12px; cursor: pointer; }
+.fcard.sel .tick { background: #22d3ee; color: #04121f; }
+.badge2.blue { color: #93c5fd; border-color: rgba(59,130,246,.5); background: rgba(59,130,246,.12); }
+.badge2.black { color: #fca5a5; border-color: rgba(239,68,68,.55); background: rgba(239,68,68,.12); }
+.empty-state { padding: 60px 20px; text-align: center; color: var(--fg-3); font-size: 14px; }
+.lightbox { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px 16px; background: rgba(2,6,12,.88); }
+.lightbox figure { max-width: min(1100px, 100%); display: flex; flex-direction: column; gap: 8px; }
+.lightbox img { width: 100%; border-radius: 6px; }
+.lightbox figcaption { font: 500 12px var(--font-data); color: var(--fg-2); }
+.lightbox .row { display: flex; justify-content: flex-end; gap: 8px; }
+.clip-player { width: 100%; max-height: 70vh; border-radius: 6px; background: #000; }

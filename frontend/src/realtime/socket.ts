@@ -1,8 +1,10 @@
 import { io, type Socket } from 'socket.io-client';
+import { api } from '../api/client';
 import { getToken, refresh } from '../api/session';
 import { t } from '../i18n';
 import { type AlarmNew, type AlarmUpdated, useAlarms } from '../stores/alarms';
 import { type ChargingFloor, useCharging } from '../stores/charging';
+import { type ActiveRecording, useMedia } from '../stores/media';
 import { type CmdResult, type RobotLive, type Stats, useRealtime } from '../stores/realtime';
 import { type Task, useTasks } from '../stores/tasks';
 import { useToast } from '../stores/toast';
@@ -30,6 +32,7 @@ export function connectRealtime(): void {
 
   socket.on('connect', () => {
     useRealtime.getState().setConn('connected');
+    void loadRecordings();
     void resubscribe();
   });
 
@@ -61,6 +64,9 @@ export function connectRealtime(): void {
   // 告警：依告警設置響鈴、彈窗（一級預設彈窗＋響鈴）
   socket.on('alarm.new', onAlarmNew);
   socket.on('alarm.updated', (m: AlarmUpdated) => useAlarms.getState().update(m));
+  // 抓拍、錄影（T-28）
+  socket.on('media.new', () => useMedia.getState().bump());
+  socket.on('media.recording', (m: { active: ActiveRecording[] }) => useMedia.getState().setRecordings(m.active));
   socket.on('teleop.revoked', (m: { code: string; by: string; reason: 'takeover' | 'estop' }) =>
     useToast
       .getState()
@@ -80,6 +86,15 @@ export function connectRealtime(): void {
 export function onAlarmNew(m: AlarmNew): void {
   useAlarms.getState().add(m);
   if (m.notify.sound) playAlarm(m.alarm.level);
+}
+
+/** 連線後先取一次目前錄影中的清單，之後靠 media.recording 更新 */
+async function loadRecordings() {
+  try {
+    useMedia.getState().setRecordings(await api<ActiveRecording[]>('/media/recordings/active'));
+  } catch {
+    /* 沒有權限或後端沒開 */
+  }
 }
 
 async function reauth() {

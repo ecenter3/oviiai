@@ -5,6 +5,8 @@ import { robotTone } from '../../components/FloorMap/geometry';
 import { PermGate } from '../../components/PermGate';
 import { formatTime, t, type MessageKey } from '../../i18n';
 import { ChargeCompleteButton } from '../../components/ChargeCompleteButton';
+import { MediaControls } from '../../components/media/MediaControls';
+import { VideoPlayer } from '../../components/media/VideoPlayer';
 import type { ChargeStatus } from '../../stores/charging';
 import type { RobotLive } from '../../stores/realtime';
 
@@ -35,6 +37,11 @@ export function RobotDrawer(props: {
         </button>
       </div>
       <div className="drawer-body">
+        {r.online && (
+          <VideoPlayer key={r.code} streamKey={`robot/${r.code}/front`} label={t('video.robotFront', { code: r.code })} className="drawer-video">
+            <MediaControls streamKey={`robot/${r.code}/front`} name={t('video.robotFront', { code: r.code })} />
+          </VideoPlayer>
+        )}
         <dl className="kv">
           <dt>{t('robot.state')}</dt>
           <dd>

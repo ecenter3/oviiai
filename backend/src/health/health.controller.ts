@@ -6,6 +6,7 @@ import { KYSELY, type Database } from '../db/database.module';
 import { MqttService } from '../mqtt/mqtt.service';
 import { REDIS } from '../redis/redis.module';
 import { StorageService } from '../storage/storage.service';
+import { MediaMtxClient } from '../media/mediamtx.client';
 
 type Check = 'ok' | 'down' | 'unknown';
 
@@ -33,23 +34,25 @@ export class HealthController {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly mqtt: MqttService,
     @Optional() private readonly storage?: StorageService,
+    @Optional() private readonly mediamtx?: MediaMtxClient,
   ) {}
 
-  // mediamtx、各轉接器心跳在對應模組（T-29）接上
+  // 各轉接器心跳另見 fleet
   @Public()
   @Get()
   async check(): Promise<HealthReport> {
-    const [db, redis, s3] = await Promise.all([
+    const [db, redis, s3, mediamtx] = await Promise.all([
       probe(() => sql`select 1`.execute(this.db)),
       probe(() => this.redis.ping()),
       this.storage ? probe(async () => ((await this.storage!.check()) === 'ok' ? undefined : Promise.reject(new Error('s3')))) : Promise.resolve<Check>('unknown'),
+      this.mediamtx ? probe(async () => ((await this.mediamtx!.ping()) ? undefined : Promise.reject(new Error('mediamtx')))) : Promise.resolve<Check>('unknown'),
     ]);
     const checks: Record<string, Check> = {
       db,
       redis,
       mqtt: this.mqtt.connected ? 'ok' : 'down',
       s3,
-      mediamtx: 'unknown',
+      mediamtx,
     };
     const status = Object.values(checks).includes('down') ? 'degraded' : 'ok';
     return { status, ts: Date.now(), checks };

@@ -1,16 +1,21 @@
-import { Controller, Get, Headers, Inject, Param } from '@nestjs/common';
+import { Controller, Get, Headers, Inject, Param, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { sql } from 'kysely';
 import { timingSafeEqual } from 'node:crypto';
 import { Public } from '../auth/public.decorator';
 import { AppError } from '../common/errors';
-import { adapterKey, dataEncKey } from '../config';
+import { adapterAllowedCidrs, adapterKey, dataEncKey } from '../config';
 import { KYSELY, type Database } from '../db/database.module';
 
 /**
  * 轉接器設定（機器人接入 §3：一個轉接器程序管理同品牌的多台，設定來自後端 GET /adapter-config/{name}，以轉接器金鑰驗證）。
  * 金鑰放在 .env 的 ADAPTER_KEY_<名稱大寫>，請求帶 X-Adapter-Key。回傳該轉接器底下啟用中的機器人、
  * 連線資料（含解密後的密碼，只給持有金鑰的轉接器）、同樓層同品牌的充電樁、座標校正矩陣。
- * 不走使用者登入（轉接器沒有帳號），所以標 @Public，自己檢查金鑰。
+ * 不走使用者登入（轉接器沒有帳號），所以標 @Public，自己檢查來源網段與金鑰。
+ *
+ * 來源網段（ADAPTER_ALLOWED_CIDRS）在後端也檢查一次（PR #11 審查第 1 點）：就算 Nginx 設錯、
+ * 路徑大小寫繞過 Nginx 的 location（Express 路由不分大小寫），或直連 3000 埠，也拿不到解密後的密碼。
+ * 正式環境沒設定就一律拒絕。req.ip 要正確，前面有 Nginx 時 TRUST_PROXY 要設成 Nginx 的位址。
  */
 @Controller('adapter-config')
 export class AdapterConfigController {
@@ -18,7 +23,9 @@ export class AdapterConfigController {
 
   @Public()
   @Get(':name')
-  async get(@Param('name') name: string, @Headers('x-adapter-key') key: string | undefined) {
+  async get(@Param('name') name: string, @Headers('x-adapter-key') key: string | undefined, @Req() req: Request) {
+    const allowed = adapterAllowedCidrs();
+    if (allowed && !allowed.has(req.ip)) throw new AppError('FORBIDDEN', '來源網段不允許取得轉接器設定');
     if (!/^[a-z0-9_-]{1,32}$/.test(name)) throw new AppError('NOT_FOUND', '找不到轉接器');
     const expected = adapterKey(name);
     if (!expected || !key || !safeEqual(key, expected)) throw new AppError('UNAUTHENTICATED', '轉接器金鑰錯誤');

@@ -28,10 +28,16 @@ log_parameter_max_length_on_error = 0
 開發環境已設在 `infra/docker-compose.dev.yml` 的 `command`。正式環境寫在 `postgresql.conf`，或 compose 的 `command: ["postgres", "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0", ...]`。
 部署後確認：`SHOW log_parameter_max_length;` 兩個都是 `0`。另外 `log_statement` 不要設成 `all` 或 `mod`（會記下整句 SQL）。
 
-## 3. Nginx：`/api/v1/adapter-config` 只開放轉接器網段（PR #10 審查第 3 點）
-這個端點雖然要轉接器金鑰，但回傳**解密後的機器人連線密碼**，多一層網路限制：只允許轉接器主機所在網段，其他一律 403。範例設定見 `infra/nginx/oviiai.conf.example`（`geo $adapter_net` 與 `location ^~ /api/v1/adapter-config/`）。
-- 轉接器用 `network_mode: host`，來源是主機 IP；若轉接器跑在另一台機器，填那台的網段。
-- 部署後從控制室電腦測：`curl -k https://<主機>/api/v1/adapter-config/anbot` 應回 403。
+## 3. `/api/v1/adapter-config` 只開放轉接器網段（PR #10 第 3 點、PR #11 第 1 點）
+這個端點雖然要轉接器金鑰，但回傳**解密後的機器人連線密碼**，所以有兩層網路限制，任一層都擋得住：
+1. **後端**：`ADAPTER_ALLOWED_CIDRS`（逗號分隔，例：`192.168.10.0/24,127.0.0.1/32`）。來源 IP 不在清單內一律 403。**正式環境（`NODE_ENV=production`）沒設就全部拒絕**；開發環境沒設則允許並在啟動時警告。
+   - 後端在 Nginx 後面時，`TRUST_PROXY` 是信任的代理位址（預設 `loopback`，Nginx 在同一台時不用改；在別台時設成那台的 IP），後端才會用 `X-Forwarded-For` 的真實來源，否則看到的都是 Nginx 的 IP。
+   - 轉接器用 `network_mode: host` 直連後端時，來源是主機 IP（`127.0.0.1`）。
+2. **Nginx**：`infra/nginx/oviiai.conf.example` 的 `geo $adapter_net` 與 `location ~* ^/api/v1/adapter-config(/|$)`。**用不分大小寫的正規式**：Express 的路由不分大小寫，`/API/V1/Adapter-Config/...` 也會進到後端，用前綴比對的 `location ^~` 擋不住。
+   - 安全標頭（`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、HSTS）放在 `infra/nginx/security-headers.conf`，複製到 `/etc/nginx/snippets/`。注意 Nginx 的 `add_header` 只要 location 裡有自己的 `add_header`，就不會繼承 server 層的，所以每個有 `add_header` 的 location 都要再 `include` 一次（範例已處理）。
+   - `/internal/` 一律回 404（MediaMTX 驗證回呼只給 MediaMTX 用，見第 6 節）。
+- 部署後從控制室電腦測，下面都應回 403：
+  `curl -k https://<主機>/api/v1/adapter-config/anbot`、`curl -k https://<主機>/API/V1/ADAPTER-CONFIG/anbot`
 - 整個平台建議只對控制室與管理網段開放，不對外網。
 
 ## 4. 操作日誌不含秘密（PR #10 審查第 1 點）
@@ -43,4 +49,18 @@ log_parameter_max_length_on_error = 0
 ## 5. 資料保存期限
 - 每日 03:30（台北）清除超過 1 年的已結束任務（含歷程）、已結束告警（含處理歷程）、操作日誌；刪除前先匯出 CSV 到物件儲存 `retention/` 備查。
 - **備查檔本身的保存期限待業主確認**（PR #10 審查第 5 點）：目前 `retention/*.csv` 會一直留著。確定年限後在 SeaweedFS 設 TTL（例：`weed shell` → `fs.configure -locationPrefix=/buckets/rms/retention/ -ttl=3y -apply`），並寫回這裡。
-- 媒體（抓拍、錄影）30 天、告警關聯檔案 1 年：媒體模組（T-28）上線時設定。
+- 媒體（抓拍、錄影）30 天，與告警關聯的 1 年：同一個排程清除，資料列與物件儲存的檔案（`media/snapshots/`、`media/clips/`）一起刪。
+
+## 6. 影像串流（MediaMTX，T-29）與抓拍錄影（T-28）
+- MediaMTX 設定在 `infra/mediamtx.yml`，攝影機路徑由後端用 Control API（`:9997`）同步，**不要手動在 yml 加 paths**。路徑名稱：攝影機 `cam/<代碼>`，機器人 `robot/<代碼>/front`。
+- 讀取權限一律由後端決定：MediaMTX 每次有人讀就呼叫 `http://<後端>:3000/internal/media/auth`。
+  - 這個回呼**只給 MediaMTX 用**：Nginx 不轉送 `/internal/`，後端的 3000 埠只開放給本機與 MediaMTX 容器（防火牆）。
+  - 瀏覽器帶後端發的播放憑證（60 秒有效，綁定路徑與使用者）。
+  - 後端抓拍、錄影用內部帳號 `MEDIA_INTERNAL_USER` / `MEDIA_INTERNAL_PASSWORD`，**正式環境必須設**（`openssl rand -hex 24`），沒設後端不會啟動。
+- `MEDIA_PUBLIC_URL`：瀏覽器連 WHEP 的位址，正式環境經 Nginx 為 `https://<主機>/media`（範例設定的 `location /media/`）。
+- WebRTC 媒體走 TCP 8189（`webrtcLocalTCPAddress`），`webrtcAdditionalHosts` 要改成**瀏覽器連得到的主機 IP**（開發是 127.0.0.1）。防火牆對控制室網段開 8189/TCP。
+- `MEDIA_TEST_SOURCE` 正式環境預設關閉，**不要設成 true**（會讓攝影機改播測試影像）。
+- 後端用 ffmpeg 抓拍與錄影：預設用 npm 套件 `ffmpeg-static`，也可用 `FFMPEG_PATH` 指定系統的 ffmpeg。靜態編譯的 ffmpeg 不能自己解析主機名稱（會當掉），後端已先把 `MEDIAMTX_RTSP` 的主機名解析成 IP 再交給它。
+- 抓拍、錄影檔放物件儲存，瀏覽器用預先簽名網址直接下載：`S3_PUBLIC_ENDPOINT` 設成**瀏覽器連得到**的 SeaweedFS S3 位址（簽名含主機名，不能事後改寫）。
+- 錄影單段上限 `media.maxRecordSec`（預設 600 秒）；同時播放上限 `media.maxStreams`（預設 16 路）。
+

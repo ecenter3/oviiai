@@ -25,6 +25,10 @@ export class FakeStorage {
     this.objects.delete(key);
   }
 
+  async presign(key: string, opts: { filename?: string } = {}) {
+    return `http://fake-s3/${key}?signed=1${opts.filename ? `&dl=${encodeURIComponent(opts.filename)}` : ''}`;
+  }
+
   async check() {
     return 'ok' as const;
   }
