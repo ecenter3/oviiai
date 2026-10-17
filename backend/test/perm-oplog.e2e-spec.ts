@@ -260,6 +260,43 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
       expect(failed).toMatchObject({ target: `role:${adminRoleId}`, detail: { ok: false, error: 'INVALID_STATE' } });
     });
 
+    it('403 寫進操作日誌 auth.forbidden；同一人同一路由 1 分鐘內只記一筆', async () => {
+      const u = await insertUser(`${tag}-snoop`, testRoleId);
+      const tok = await login(`${tag}-snoop`);
+      await as(tok).get('/api/v1/oplogs').expect(403);
+      await as(tok).get('/api/v1/oplogs?page=2').expect(403);
+      await as(tok).get(`/api/v1/users/${admin.id}`).expect(403);
+      await as(tok).get(`/api/v1/users/${guard.id}`).expect(403); // 同一路由樣板，不同 id
+      await new Promise((r) => setTimeout(r, 200)); // 寫日誌不擋回應
+      const rows = await db
+        .selectFrom('op_logs')
+        .select(['action', 'target', 'detail', 'ip'])
+        .where('user_id', '=', u)
+        .where('action', '=', 'auth.forbidden')
+        .orderBy('at')
+        .execute();
+      expect(rows.map((r) => r.target)).toEqual(['GET /api/v1/oplogs', 'GET /api/v1/users/:id']);
+      expect(rows[0].detail).toMatchObject({ ok: false, error: 'FORBIDDEN', path: '/api/v1/oplogs', required: ['oplog'] });
+      expect(rows[0].ip).toBeTruthy();
+    });
+
+    it('@OpLog 端點在服務層回 403：只記原本那一筆，不重複', async () => {
+      const mgrRole = (
+        await db
+          .insertInto('roles')
+          .values({ name: `${tag}-帳管`, perms: ['monitor', 'users'] })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+      ).id;
+      const u = await insertUser(`${tag}-umgr`, mgrRole);
+      const tok = await login(`${tag}-umgr`);
+      await as(tok).post(`/api/v1/users/${admin.id}/reset-password`).expect(403);
+      await new Promise((r) => setTimeout(r, 200));
+      const rows = await db.selectFrom('op_logs').select(['action', 'detail']).where('user_id', '=', u).where('action', '<>', 'auth.login').execute();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ action: 'user.reset_password', detail: { ok: false, error: 'FORBIDDEN' } });
+    });
+
     it('依動作前綴、時間篩選與分頁', async () => {
       const r = await as(admin.token).get(`/api/v1/oplogs?user=${tag}-admin&action=user.*&size=1`).expect(200);
       expect(r.body.size).toBe(1);
@@ -322,9 +359,20 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
       await as(mgr).patch(`/api/v1/roles/${ok.body.id}`).send({ perms: ['monitor', 'robots'] }).expect(200);
     });
 
-    it('移除自己沒有的權限不算提升', async () => {
+    it('不可改名、修改、刪除權限高於自己的角色（安全收尾 c）', async () => {
       const r = await as(admin.token).post('/api/v1/roles').send({ name: `${tag}-含急停`, perms: ['monitor', 'op.estop'] }).expect(201);
-      await as(mgr).patch(`/api/v1/roles/${r.body.id}`).send({ perms: ['monitor'] }).expect(200);
+      const rename = await as(mgr).patch(`/api/v1/roles/${r.body.id}`).send({ name: `${tag}-改名` }).expect(403);
+      expect(rename.body.error.details.missing).toEqual(['op.estop']);
+      await as(mgr).patch(`/api/v1/roles/${r.body.id}`).send({ perms: ['monitor'] }).expect(403);
+      await as(mgr).delete(`/api/v1/roles/${r.body.id}`).expect(403);
+      // 系統角色：只有系統管理員能動
+      await as(mgr).patch(`/api/v1/roles/${adminRoleId}`).send({ name: `${tag}-篡改` }).expect(403);
+      const after = await as(admin.token).get(`/api/v1/roles/${r.body.id}`).expect(200);
+      expect(after.body).toMatchObject({ name: `${tag}-含急停`, perms: ['monitor', 'op.estop'] });
+      // 權限不超過自己的角色照常可改
+      const low = await as(mgr).post('/api/v1/roles').send({ name: `${tag}-低`, perms: ['monitor'] }).expect(201);
+      await as(mgr).patch(`/api/v1/roles/${low.body.id}`).send({ name: `${tag}-低2` }).expect(200);
+      await as(mgr).delete(`/api/v1/roles/${low.body.id}`).expect(204);
     });
 
     it('只有系統角色成員可以指派系統角色', async () => {

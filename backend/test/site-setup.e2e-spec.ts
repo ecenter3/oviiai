@@ -324,6 +324,9 @@ describe.skipIf(!ready)('場域快速設定（e2e）', () => {
       mine.perms = [...mine.perms, 'users']; // 把自己的角色升級
       const sys = pkg.roles.find((r) => r.name === '系統管理員')!;
       sys.perms = ['monitor'];
+      // 權限高於匯入者的既有角色：連改說明都不行（安全收尾 c）
+      const guardRole = pkg.roles.find((r) => r.name === '警衛')!;
+      guardRole.description = '被改掉的說明';
       pkg.floors.push({ id: FLOOR3, name: `升權樓層 ${tag}`, sort: 99, widthM: 10, heightM: 10, robotQuota: 0, plan: null });
       const zip = Buffer.from(zipSync({ ...files, 'site.json': strToU8(JSON.stringify(pkg)) }));
       const p = (await upload(admin, '/api/v1/site/import?dryRun=true', zip, 'site.zip').expect(200)).body;
@@ -333,13 +336,15 @@ describe.skipIf(!ready)('場域快速設定（e2e）', () => {
           { role: `${tag}-settings+op.config+maps+robotmgr`, missing: ['users'] },
         ]),
       );
-      expect(p.blocked).toHaveLength(2);
+      expect(p.blocked).toContainEqual({ role: '警衛', missing: expect.arrayContaining(['op.estop']) });
+      expect(p.blocked).toHaveLength(3);
       expect(p.sections.find((s: { entity: string }) => s.entity === 'roles').changes).toContainEqual({ key: '系統管理員', action: 'keep', note: '系統角色不會被設定包改掉' });
       const r = (await upload(admin, '/api/v1/site/import', zip, 'site.zip').expect(403)).body;
       expect(r.error.message).toContain('超出你自己的權限');
       expect(await db.selectFrom('floors').select('id').where('id', '=', FLOOR3).executeTakeFirst()).toBeUndefined();
       expect(await db.selectFrom('roles').select('id').where('name', '=', `升權 ${tag}`).executeTakeFirst()).toBeUndefined();
       expect((await db.selectFrom('roles').select('perms').where('name', '=', `${tag}-settings+op.config+maps+robotmgr`).executeTakeFirstOrThrow()).perms).not.toContain('users');
+      expect((await db.selectFrom('roles').select('description').where('name', '=', '警衛').executeTakeFirstOrThrow()).description).not.toBe('被改掉的說明');
     });
 
     it('版本與格式：較新的版本拒絕並說明；壞 zip、缺平面圖、樓層參照錯誤', async () => {
