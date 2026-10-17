@@ -54,7 +54,8 @@ make mock               # 模擬機器人（預設 6 台）
 ```
 管理介面：EMQX http://localhost:18083 ／ S3 檔案瀏覽 http://localhost:8888
 
-`.env` 要設 `DATA_ENC_KEY`（攝影機、機器人連線密碼加密，`openssl rand -base64 48`）與 `ADAPTER_KEY_MOCK`（`openssl rand -hex 24`）。
+`.env` 要設 `DATA_ENC_KEY`（攝影機、機器人連線密碼加密，`openssl rand -base64 48`）、`ADAPTER_KEY_MOCK`（`openssl rand -hex 24`）與 `EMQX_JWT_SECRET`（`openssl rand -hex 32`；`setup-wsl.sh` 會自動產生空的這三個）。
+EMQX 不接受匿名連線（`docs/deploy.md` 第 10 節）：後端用 `EMQX_JWT_SECRET` 自己簽憑證；模擬器的 MQTT 憑證向後端取，所以**要先開後端再開 `make mock`**（後端晚開也可以，模擬器會在 10 秒內拿到憑證後連上）。舊的 `.env` 沒有 `EMQX_JWT_SECRET` 時 `make up` 會提示。
 有 `ADAPTER_KEY_MOCK` 時，模擬器每 10 秒向後端 `GET /api/v1/adapter-config/mock` 取機器人清單：在「機器人管理」新增 adapter 為 `mock` 的機器人，模擬器就會跟著出現；停用則移除。後端沒開時改用 `adapters/mock/robots.yaml`。
 
 **已知的開發環境問題**：Windows 上的 Chrome 開 `http://localhost:5173`，收超過約 50 KB 的回應（例：平面圖）會卡住收不完；直接連後端 `localhost:3000` 或正式環境的 Nginx 不會。疑似 WSL2 mirrored 網路的 MTU 問題，可試：

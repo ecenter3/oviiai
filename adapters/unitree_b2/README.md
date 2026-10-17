@@ -53,3 +53,7 @@ unitree_sdk2（C++、DDS）對 B2 提供：
   瀏覽器錄的是 `audio/webm`（Opus）居多，SDK 不吃 webm 時用 ffmpeg 轉成機型要的格式。
 - 兩者都支援時只勾 `talk_live`（畫面優先用即時對講），或兩個都勾。
 
+
+## MQTT 帳號（所有轉接器；安全收尾 e）
+EMQX 不接受匿名連線。轉接器以 `ADAPTER_KEY_<名稱>` 呼叫 `GET /adapter-config/<名稱>`，回應的 `mqtt`（帳號＝轉接器名稱、24 小時 JWT）只能發布自己機器人的 `telemetry`／`event`／`ack`／`online` 與 `rms/adapter/<名稱>/status`，只能訂閱自己機器人的 `cmd`／`teleop`。
+照 `mock/run.py`、`deep_x30/run.py` 的做法：啟動與每 10 秒同步時呼叫 `common.config_sync.apply_mqtt_credentials(bridge, cfg)`，機器人清單變了 `Bridge` 會用新憑證重連。詳見 `docs/deploy.md` 第 10 節。

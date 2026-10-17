@@ -55,6 +55,15 @@ else
 fi
 cd "$DIR"
 [[ -f .env ]] || { cp .env.example .env; ok "已建立 .env（密碼請自行修改）"; }
+# 開發用金鑰：空的就產生（EMQX 認證、模擬器取設定與 MQTT 憑證都要）
+fill_secret() {  # $1 變數名 $2 產生的值
+  if grep -q "^$1=." .env; then return; fi
+  if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+  ok "已產生 .env 的 $1"
+}
+fill_secret EMQX_JWT_SECRET "$(openssl rand -hex 32)"
+fill_secret ADAPTER_KEY_MOCK "$(openssl rand -hex 24)"
+fill_secret DATA_ENC_KEY "$(openssl rand -hex 32)"
 
 # 5. 轉接器（Python）
 $PY -m venv adapters/.venv

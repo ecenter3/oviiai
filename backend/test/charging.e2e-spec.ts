@@ -21,6 +21,7 @@ import { RobotRegistry } from '../src/fleet/robot-registry';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { SettingsService } from '../src/settings/settings.service';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -166,7 +167,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
     token = (await http().post('/api/v1/auth/login').send({ username: `${tag}-chg`, password: PW }).expect(200)).body.accessToken;
     charging().alerts$.subscribe((a) => alerts.push(a));
 
-    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-chg-${tag}` });
+    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-chg-${tag}`, ...testMqttAuth() });
     await adapter.subscribeAsync(Object.keys(bots).map((c) => `rms/robot/${c}/cmd`), { qos: 1 });
     adapter.on('message', (topic, payload) => {
       const b = bots[topic.split('/')[2]];

@@ -18,6 +18,7 @@ import { FleetService } from '../src/fleet/fleet.service';
 import { TelemetryWriter } from '../src/fleet/telemetry-writer';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -98,7 +99,7 @@ describe.skipIf(!ready)('fleet（e2e）', () => {
     url = `http://127.0.0.1:${(app.getHttpServer().address() as { port: number }).port}`;
     await until(() => app.get(MqttService).connected);
 
-    pub = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-pub-${tag}` });
+    pub = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-pub-${tag}`, ...testMqttAuth() });
     token = await makeUser(['monitor']);
     noPermToken = await makeUser(['users']);
   });

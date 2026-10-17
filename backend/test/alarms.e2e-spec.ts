@@ -25,6 +25,7 @@ import { RetentionService } from '../src/maintenance/retention.service';
 import { SettingsService } from '../src/settings/settings.service';
 import { StorageService } from '../src/storage/storage.service';
 import { FakeStorage } from './fake-storage';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -127,7 +128,7 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
     full = await makeUser(['monitor', 'sysalarm', 'bizalarm', 'alarmset', 'dispatch', 'op.alarm', 'op.dispatch', 'op.remote']);
     sysOnly = await makeUser(['sysalarm']);
 
-    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-alarm-${tag}` });
+    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-alarm-${tag}`, ...testMqttAuth() });
     await adapter.subscribeAsync(`rms/robot/${CODE}/cmd`, { qos: 1 });
     adapter.on('message', (_topic, payload) => {
       const m = JSON.parse(payload.toString());

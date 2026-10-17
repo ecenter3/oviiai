@@ -19,6 +19,7 @@ import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { StorageService } from '../src/storage/storage.service';
 import { FakeStorage } from './fake-storage';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -77,7 +78,7 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
     configureApp(app);
     await app.listen(0);
     await until(() => app.get(MqttService).connected);
-    pub = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-site-${tag}` });
+    pub = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-site-${tag}`, ...testMqttAuth() });
     admin = await makeUser(['robotmgr', 'maps', 'robots', 'monitor']);
     viewer = await makeUser(['monitor']);
   });
@@ -134,6 +135,34 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
 
       const cfg = (await http().get(`/api/v1/adapter-config/${ADAPTER}`).set('X-Adapter-Key', ADAPTER_KEY).expect(200)).body;
       expect(cfg.robots).toEqual([expect.objectContaining({ code: CODE, floor: FLOOR, secret: 'robot-pass', conn: { host: '10.0.0.8', port: 9000 } })]);
+    });
+
+    it.skipIf(!process.env.EMQX_JWT_SECRET)('轉接器的 MQTT 憑證只能發布、訂閱自己機器人的主題（安全收尾 e）', async () => {
+      const cfg = (await http().get(`/api/v1/adapter-config/${ADAPTER}`).set('X-Adapter-Key', ADAPTER_KEY).expect(200)).body;
+      expect(cfg.mqtt).toMatchObject({ username: ADAPTER, password: expect.any(String) });
+      const OTHER = `X${tag}-9`.toUpperCase();
+      // 帳號必須和憑證相符；沒帶憑證連不上
+      await expect(mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-spoof-${tag}`, username: 'backend', password: cfg.mqtt.password, reconnectPeriod: 0 })).rejects.toThrow();
+      await expect(mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-anon-${tag}`, reconnectPeriod: 0 })).rejects.toThrow();
+
+      const ad = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-acl-${tag}`, username: cfg.mqtt.username, password: cfg.mqtt.password });
+      try {
+        await ad.subscribeAsync(`rms/robot/${CODE}/cmd`, { qos: 1 });
+        await expect(ad.subscribeAsync(`rms/robot/${OTHER}/cmd`)).rejects.toThrow(/Subscribe error/);
+        await expect(ad.subscribeAsync('rms/#')).rejects.toThrow(/Subscribe error/);
+        const seen: string[] = [];
+        await pub.subscribeAsync([`rms/robot/${CODE}/event`, `rms/robot/${OTHER}/#`, `rms/robot/${CODE}/cmd`, `rms/adapter/+/status`]);
+        pub.on('message', (t, m) => seen.push(`${t} ${m.toString()}`));
+        await ad.publishAsync(`rms/robot/${CODE}/event`, 'own', { qos: 1 });
+        await ad.publishAsync(`rms/robot/${OTHER}/telemetry`, 'spoof', { qos: 1 });
+        await ad.publishAsync(`rms/robot/${CODE}/cmd`, 'fake-cmd', { qos: 1 });
+        await ad.publishAsync(`rms/adapter/${ADAPTER}-x/status`, 'other-adapter', { qos: 1 });
+        await until(() => seen.length > 0);
+        await new Promise((r) => setTimeout(r, 300));
+        expect(seen).toEqual([`rms/robot/${CODE}/event own`]);
+      } finally {
+        await ad.endAsync();
+      }
     });
 
     it('來源網段不在 ADAPTER_ALLOWED_CIDRS → 403，大寫路徑也一樣；正式環境沒設定一律 403（PR #11 審查第 1 點）', async () => {

@@ -19,6 +19,7 @@ import { FleetService } from '../src/fleet/fleet.service';
 import { RobotRegistry } from '../src/fleet/robot-registry';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -106,7 +107,7 @@ describe.skipIf(!ready)('指令與遙控（e2e）', () => {
     await until(() => app.get(MqttService).connected);
 
     // 假轉接器
-    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-adapter-${tag}` });
+    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-adapter-${tag}`, ...testMqttAuth() });
     await adapter.subscribeAsync([`rms/robot/${CODE}/cmd`, `rms/robot/${CODE}/teleop`], { qos: 1 });
     adapter.on('message', (topic, payload) => {
       const m = JSON.parse(payload.toString());

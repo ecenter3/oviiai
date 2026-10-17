@@ -80,6 +80,8 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
     await app?.close();
     if (db) {
       await db.deleteFrom('op_logs').where('username', 'like', `${tag}-%`).execute();
+      // 測試改過規則（閒置登出）：settings.updated_by 參照帳號
+      if (createdUsers.length) await db.updateTable('settings').set({ updated_by: null }).where('updated_by', 'in', createdUsers).execute();
       if (createdUsers.length) await db.deleteFrom('users').where('id', 'in', createdUsers).execute();
       await db.deleteFrom('roles').where('name', 'like', `${tag}-%`).execute();
       await db.destroy();

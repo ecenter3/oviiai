@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import mqtt, { type MqttClient } from 'mqtt';
 import { randomBytes } from 'node:crypto';
+import { backendAcl, mqttJwtSecret, signMqttToken } from './mqtt-auth';
 
 type Handler = (topic: string, payload: Buffer) => void;
 
@@ -31,16 +32,23 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     const url = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
+    // EMQX 開了 JWT 認證（EMQX_JWT_SECRET）：自己簽一張；每次重連換新的，不怕過期
+    const secret = mqttJwtSecret();
+    const username = process.env.MQTT_BACKEND_USER || (secret ? 'backend' : undefined);
+    const password = () => (secret ? signMqttToken(username!, backendAcl(), secret) : process.env.MQTT_BACKEND_PASSWORD || undefined);
     this.client = mqtt.connect(url, {
       // client id 必須唯一：重複時 broker 會踢掉先連上的那一個（同一程序裡的多個實例，例如平行測試）
       clientId: `rms-backend-${process.pid}-${randomBytes(4).toString('hex')}`,
-      username: process.env.MQTT_BACKEND_USER || undefined,
-      password: process.env.MQTT_BACKEND_PASSWORD || undefined,
+      username,
+      password: password(),
       reconnectPeriod: 2000,
       connectTimeout: 5000,
       clean: true,
     });
     let warned = false;
+    this.client.on('reconnect', () => {
+      this.client!.options.password = password();
+    });
     this.client.on('connect', () => {
       this.log.log(`已連線 ${url}`);
       warned = false;
