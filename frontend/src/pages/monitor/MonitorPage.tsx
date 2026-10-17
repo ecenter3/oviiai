@@ -8,6 +8,8 @@ import { useToast } from '../../stores/toast';
 import { chargeStatusOf } from '../../stores/charging';
 import { useChargingData } from '../useChargingData';
 import { type DrawerCommand, RobotDrawer } from './RobotDrawer';
+import { MediaControls } from '../../components/media/MediaControls';
+import { VideoPlayer } from '../../components/media/VideoPlayer';
 import { AlertLog } from './AlertLog';
 import { TasksPanel } from './TasksPanel';
 
@@ -23,6 +25,7 @@ interface Camera {
   id: string;
   code: string;
   name: string;
+  streamKey: string;
   floorId: string;
   x: number;
   y: number;
@@ -133,6 +136,8 @@ export function MonitorPage() {
   }
 
   const camList = cameras.data ?? [];
+  // 只播放點選的那一路（影像與整合 §1：首頁不同時開所有攝影機）
+  const cam = camList.find((c) => c.id === selCam) ?? null;
 
   return (
     <div className="monitor">
@@ -248,6 +253,16 @@ export function MonitorPage() {
         <div className="panel-head">
           {t('monitor.cams')} <span className="meta">({camList.length})</span>
         </div>
+        {cam && (
+          <div className="cam-live">
+            <VideoPlayer key={cam.streamKey} streamKey={cam.streamKey} label={`${cam.code} ${cam.name}`}>
+              <MediaControls streamKey={cam.streamKey} name={cam.name} />
+              <button type="button" className="vbtn" aria-label={t('video.close')} onClick={() => setSelCam(null)}>
+                ✕
+              </button>
+            </VideoPlayer>
+          </div>
+        )}
         <div className="scroll">
           {camList.length === 0 ? (
             <div className="empty">{t('monitor.cams.empty')}</div>
@@ -256,7 +271,7 @@ export function MonitorPage() {
               {camList.map((c) => (
                 <button key={c.id} type="button" className={`feed${c.id === selCam ? ' sel' : ''}`} onClick={() => setSelCam(c.id)} title={c.name}>
                   <span className="code">{c.code}</span>
-                  <span className="nosig">{t('monitor.cams.noStream')}</span>
+                  <span className="nosig">{c.id === selCam ? t('monitor.cams.playing') : t('monitor.cams.clickToPlay')}</span>
                   <span className="name">{c.name}</span>
                 </button>
               ))}

@@ -5,6 +5,7 @@ import { RequireLogin, RequirePage } from './components/RequirePage';
 import { LoginPage } from './pages/LoginPage';
 import { MapsPage } from './pages/admin/MapsPage';
 import { RobotAdminPage } from './pages/admin/RobotAdminPage';
+import { CapturesPage, RecordsPage } from './pages/media/MediaPages';
 import { NavPage } from './pages/nav/NavPage';
 import { AlarmSettingsPage } from './pages/alarms/AlarmSettingsPage';
 import { AlarmsPage } from './pages/alarms/AlarmsPage';
@@ -28,6 +29,8 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/robot-admin': RobotAdminPage,
   '/maps': MapsPage,
   '/nav': NavPage,
+  '/captures': CapturesPage,
+  '/records': RecordsPage,
 };
 
 export function App() {
