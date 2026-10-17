@@ -14,8 +14,25 @@ const RETRY_MS = 3_000;
  * 先向後端取 60 秒播放憑證，再以 WHEP 向 MediaMTX 建立 WebRTC 連線；斷線每 3 秒重連（重連時重新取憑證）。
  * 不轉碼、延遲 1 秒內。沒有影像來源（404）時不重連。
  */
-export function VideoPlayer({ streamKey, label, className, children }: { streamKey: string; label: string; className?: string; children?: React.ReactNode }) {
+export function VideoPlayer({
+  streamKey,
+  label,
+  className,
+  children,
+  muted = true,
+}: {
+  streamKey: string;
+  label: string;
+  className?: string;
+  children?: React.ReactNode;
+  /** 預設靜音（瀏覽器才允許自動播放）；對講時打開聽現場聲音（T-31） */
+  muted?: boolean;
+}) {
   const video = useRef<HTMLVideoElement>(null);
+  // React 不會更新 <video muted>，直接設屬性
+  useEffect(() => {
+    if (video.current) video.current.muted = muted;
+  }, [muted]);
   const [status, setStatus] = useState<Status>('connecting');
   const [attempt, setAttempt] = useState(0);
 
@@ -109,7 +126,7 @@ export function VideoPlayer({ streamKey, label, className, children }: { streamK
 }
 
 /** 等 ICE 候選收集完（最多 2 秒）：MediaMTX 收到完整 SDP 就不需要再補候選 */
-function iceGathered(pc: RTCPeerConnection): Promise<void> {
+export function iceGathered(pc: RTCPeerConnection): Promise<void> {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve) => {
     const t = setTimeout(resolve, 2_000);
