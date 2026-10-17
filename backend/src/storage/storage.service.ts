@@ -1,6 +1,8 @@
 import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { createReadStream } from 'node:fs';
 import type { Readable } from 'node:stream';
 
 /**
@@ -54,6 +56,22 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   async put(key: string, body: Buffer | string, contentType: string): Promise<void> {
     await (this.ready ??= this.ensureBucket());
     await this.s3.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
+
+  /**
+   * 上傳本機檔案：串流分段上傳（每段 8 MB、同時 2 段），不把整個檔案讀進記憶體
+   * （600 秒錄影約 300 MB；PR #12 審查第 2 點）。
+   */
+  async putFile(key: string, file: string, contentType: string): Promise<void> {
+    await (this.ready ??= this.ensureBucket());
+    const up = new Upload({
+      client: this.s3,
+      params: { Bucket: this.bucket, Key: key, Body: createReadStream(file), ContentType: contentType },
+      partSize: 8 * 1024 * 1024,
+      queueSize: 2,
+      leavePartsOnError: false,
+    });
+    await up.done();
   }
 
   async get(key: string): Promise<{ body: Readable; contentType: string | undefined; length: number | undefined }> {

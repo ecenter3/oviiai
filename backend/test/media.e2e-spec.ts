@@ -65,6 +65,8 @@ describe.skipIf(!ready)('影像與媒體（e2e）', () => {
   let guard: string;
   let capturesOnly: string;
   let noMedia: string;
+  let capturesDeleter: string;
+  let deleter: string;
   let cameraId: string;
   const storage = new FakeStorage();
   const mtx = new FakeMtx();
@@ -110,6 +112,8 @@ describe.skipIf(!ready)('影像與媒體（e2e）', () => {
     guard = await makeUser(['monitor', 'captures', 'records', 'op.remote']);
     capturesOnly = await makeUser(['captures']);
     noMedia = await makeUser(['users']);
+    capturesDeleter = await makeUser(['captures', 'op.media']);
+    deleter = await makeUser(['captures', 'records', 'op.media']);
   });
 
   afterAll(async () => {
@@ -192,11 +196,36 @@ describe.skipIf(!ready)('影像與媒體（e2e）', () => {
       expect(dl.url).toContain('dl=');
     });
 
-    it('刪除：物件儲存的檔案一起刪', async () => {
-      await as(capturesOnly, http().post('/api/v1/media/delete')).send({ ids: [snapId, clipId] }).expect(403); // 錄像沒權限
-      expect((await as(capturesOnly, http().post('/api/v1/media/delete')).send({ ids: [snapId] }).expect(200)).body).toEqual({ deleted: 1 });
+    it('刪除要 op.media（只有瀏覽權限 403）；告警證據不能手動刪（409）；物件儲存的檔案一起刪（PR #12 審查第 1 點）', async () => {
+      // 只有瀏覽權限（captures）或只有遙控權限（guard：op.remote）都不能刪
+      await as(capturesOnly, http().post('/api/v1/media/delete')).send({ ids: [snapId] }).expect(403);
+      await as(capturesOnly, http().delete(`/api/v1/media/${snapId}`)).expect(403);
+      await as(guard, http().post('/api/v1/media/delete')).send({ ids: [snapId] }).expect(403);
+      // 有 op.media 但看不到錄像：不能刪錄像
+      await as(capturesDeleter, http().post('/api/v1/media/delete')).send({ ids: [snapId, clipId] }).expect(403);
+
+      // 告警關聯的檔案：整批拒絕，一筆都不刪
+      const alarm = await db
+        .insertInto('alarms')
+        .values({ code: `A-${tag}`, type: 'intrusion', category: 'biz', level: 2, camera_id: cameraId, floor_id: FLOOR, message: 'e2e', status: 'open', occurred_at: new Date() })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const evKey = `media/test/${tag}-ev.jpg`;
+      await storage.put(evKey, Buffer.from('x'), 'image/jpeg');
+      const ev = await db
+        .insertInto('media')
+        .values({ kind: 'snapshot', camera_id: cameraId, floor_id: FLOOR, stream_key: KEY, object_key: evKey, size_bytes: 1, content_type: 'image/jpeg', source: 'alarm', alarm_id: alarm.id })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const r = (await as(deleter, http().post('/api/v1/media/delete')).send({ ids: [snapId, ev.id] }).expect(409)).body;
+      expect(r.error).toMatchObject({ code: 'INVALID_STATE', details: { ids: [ev.id] } });
+      await as(deleter, http().delete(`/api/v1/media/${ev.id}`)).expect(409);
+      expect(storage.objects.has(evKey)).toBe(true);
+      expect(storage.objects.has(`media/test/${tag}.jpg`)).toBe(true);
+
+      expect((await as(capturesDeleter, http().post('/api/v1/media/delete')).send({ ids: [snapId] }).expect(200)).body).toEqual({ deleted: 1 });
       expect(storage.objects.has(`media/test/${tag}.jpg`)).toBe(false);
-      await as(guard, http().delete(`/api/v1/media/${clipId}`)).expect(204);
+      await as(deleter, http().delete(`/api/v1/media/${clipId}`)).expect(204);
       expect(storage.objects.has(`media/test/${tag}.mp4`)).toBe(false);
     });
 

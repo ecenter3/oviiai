@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { Readable as R } from 'node:stream';
 
@@ -7,6 +8,10 @@ export class FakeStorage {
 
   async put(key: string, body: Buffer | string, contentType: string) {
     this.objects.set(key, { body: Buffer.from(body), contentType });
+  }
+
+  async putFile(key: string, file: string, contentType: string) {
+    this.objects.set(key, { body: await readFile(file), contentType });
   }
 
   async get(key: string): Promise<{ body: Readable; contentType: string | undefined; length: number | undefined }> {

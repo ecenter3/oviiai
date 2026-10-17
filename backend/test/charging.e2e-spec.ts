@@ -68,6 +68,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
   const chargerIds: string[] = [];
   const alerts: ChargeAlert[] = [];
   let modeBefore: unknown;
+  let closing = false;
   const B = (n: number) => `C${tag}-${n}`;
 
   const http = () => request(app.getHttpServer());
@@ -87,6 +88,21 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       const l = app.get(FleetService).get(code);
       return l && l.state === bots[code].state && l.battery === bots[code].battery;
     });
+  }
+  /**
+   * 「同一輪」：設定各台電量的期間佔住充電排程鎖。背景每 2 秒那一輪拿不到鎖會跳過（不等），
+   * 所以不會在設定第 1 台與第 2 台之間先把第 1 台處理掉（先到先得）；放開後由測試呼叫 tick()。
+   * PR #12 審查第 5 點：「同一輪多台同時低電量」偶發失敗就是背景那一輪插進 setBot 之間。
+   */
+  async function sameRound(fn: () => Promise<void>) {
+    const redis = app.get<Redis>(REDIS);
+    const token = `e2e-${tag}-${Date.now()}`;
+    await until(async () => (await redis.set('charge:lock', token, 'PX', 10_000, 'NX')) === 'OK');
+    try {
+      await fn();
+    } finally {
+      if ((await redis.get('charge:lock')) === token) await redis.del('charge:lock');
+    }
   }
   const charging = () => app.get(ChargingService);
   const tick = () => charging().tick();
@@ -188,41 +204,49 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
         if (stale()) return;
         await ack(b, m.cmdId, 'done');
         await tele(b);
-      })();
+      })().catch((e) => {
+        // 測試結束、假轉接器已斷線時還在回覆的指令：忽略
+        if (!closing) throw e;
+      });
     });
     await app.get(RobotRegistry).load();
     for (const b of Object.values(bots)) await setBot(b.code, {});
   });
 
   beforeEach(async () => {
-    const redis = app.get<Redis>(REDIS);
-    const ids = Object.values(bots).map((b) => b.id);
-    // 清掉這個樓層的充電狀態與任務，機器人回到原位、電量 80%
-    for (const id of ids) {
-      await redis.hdel('charge:assign', id);
-      await redis.hdel('charge:manual', id);
-      await redis.hdel('charge:fails', id);
-    }
-    await redis.del(`charge:queue:${FLOOR}`);
-    await db.deleteFrom('pois').where('floor_id', '=', FLOOR).execute();
-    await db.updateTable('chargers').set({ occupied_by: null }).where('id', 'in', chargerIds).execute();
-    await db.deleteFrom('task_events').where('task_id', 'in', db.selectFrom('tasks').select('id').where('floor_id', '=', FLOOR)).execute();
-    await db.deleteFrom('tasks').where('floor_id', '=', FLOOR).execute();
-    await db.updateTable('settings').set({ value: '"auto"' }).where('key', '=', 'charge.mode.anbot').execute();
-    app.get(SettingsService).invalidate();
-    alerts.length = 0;
-    for (const [i, b] of Object.values(bots).entries()) {
-      b.epoch++;
-      b.cmds.length = 0;
-      b.hold = false;
-      b.idleDock = false;
-      b.docked = false;
-      b.failCharge = false;
-      await setBot(b.code, { state: 'idle', battery: 80, x: [5, 8, 30, 35][i], y: 10 });
-    }
+    // 整段重設期間佔住充電排程鎖：背景那一輪若插在「清掉分配」與「電量回到 80%」之間，
+    // 會用上一個測試留下的低電量替某台分配充電樁，帶進下一個測試（PR #12 審查第 5 點的第二個原因）
+    await sameRound(async () => {
+      const redis = app.get<Redis>(REDIS);
+      const ids = Object.values(bots).map((b) => b.id);
+      // 清掉這個樓層的充電狀態與任務，機器人回到原位、電量 80%
+      for (const id of ids) {
+        await redis.hdel('charge:assign', id);
+        await redis.hdel('charge:manual', id);
+        await redis.hdel('charge:fails', id);
+      }
+      await redis.del(`charge:queue:${FLOOR}`);
+      await db.deleteFrom('pois').where('floor_id', '=', FLOOR).execute();
+      await db.updateTable('chargers').set({ occupied_by: null }).where('id', 'in', chargerIds).execute();
+      await db.deleteFrom('task_events').where('task_id', 'in', db.selectFrom('tasks').select('id').where('floor_id', '=', FLOOR)).execute();
+      await db.deleteFrom('tasks').where('floor_id', '=', FLOOR).execute();
+      await db.updateTable('settings').set({ value: '"auto"' }).where('key', '=', 'charge.mode.anbot').execute();
+      app.get(SettingsService).invalidate();
+      alerts.length = 0;
+      for (const [i, b] of Object.values(bots).entries()) {
+        b.epoch++;
+        b.cmds.length = 0;
+        b.hold = false;
+        b.idleDock = false;
+        b.docked = false;
+        b.failCharge = false;
+        await setBot(b.code, { state: 'idle', battery: 80, x: [5, 8, 30, 35][i], y: 10 });
+      }
+    });
   });
 
   afterAll(async () => {
+    closing = true;
     await adapter?.endAsync();
     if (db) {
       await db.updateTable('settings').set({ value: JSON.stringify(modeBefore ?? 'auto') }).where('key', '=', 'charge.mode.anbot').execute();
@@ -263,9 +287,11 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
   });
 
   it('同一輪多台同時低電量：電量低的先拿到樁', async () => {
-    await setBot(B(1), { battery: 24 });
-    await setBot(B(2), { battery: 22 });
-    await setBot(B(4), { battery: 18 });
+    await sameRound(async () => {
+      await setBot(B(1), { battery: 24 });
+      await setBot(B(2), { battery: 22 });
+      await setBot(B(4), { battery: 18 });
+    });
     await tick();
     const v = await floorView();
     expect(v.chargers.map((c) => c.occupiedBy?.code).sort()).toEqual([B(2), B(4)].sort());
@@ -518,13 +544,18 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       expect((await floorView()).manual.map((m) => m.code)).toEqual([B(1)]);
       await until(() => bots[B(1)].x === 2 && bots[B(1)].y === 6); // 到最近的充電點
 
-      // 人員充好電：電量回升、按完成充電
-      await setBot(B(1), { battery: 95 });
+      // 人員按完成充電。電量只回升 19 點：跳升 20 點以上背景那一輪會自己判定「換電池完成」，
+      // 與按鈕搶先後就變成 409（PR #12 審查第 5 點，重複執行時抓到的另一個偶發失敗）
+      await setBot(B(1), { battery: 41 });
       await auth(http().post(`/api/v1/robots/${bots[B(1)].id}/charge-complete`)).expect(204);
       expect((await floorView()).manual).toEqual([]);
-      expect((await waitStatus(r.body.id, 'running')).robotCode).toBe(B(1));
       const s = await db.selectFrom('charge_sessions').selectAll().where('robot_id', '=', bots[B(1)].id).orderBy('started_at', 'desc').executeTakeFirstOrThrow();
-      expect(s).toMatchObject({ mode: 'manual', start_pct: 22, end_pct: 95 });
+      expect(s).toMatchObject({ mode: 'manual', start_pct: 22, end_pct: 41 });
+      expect((await task(r.body.id)).status).toBe('paused'); // 還沒到 90%
+      // 充到 90% 以上：派工保底掃描把回充暫停的任務續做
+      await setBot(B(1), { battery: 95 });
+      await app.get(DispatchService).sweep();
+      expect((await waitStatus(r.body.id, 'running')).robotCode).toBe(B(1));
     });
 
     it('換電池：電量跳升 20 點以上自動判定完成', async () => {
