@@ -200,6 +200,7 @@ export class RealtimeGateway
     }
     const u = await this.users.findById(payload.sub);
     if (!u || !u.enabled) throw wsError('UNAUTHENTICATED', '帳號已停用或不存在');
+    if (u.mustChangePassword) throw wsError('PASSWORD_CHANGE_REQUIRED', '請先修改密碼');
     if (!satisfies(u.perms, WS_PERMS)) throw wsError('FORBIDDEN', '沒有權限查看機器人狀態或告警');
 
     const data = socket.data as SocketData;

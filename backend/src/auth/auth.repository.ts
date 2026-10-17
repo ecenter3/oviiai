@@ -14,6 +14,8 @@ export interface AuthUser {
   /** 系統角色（系統管理員）成員：可強制接管遙控 */
   isSystem: boolean;
   perms: string[];
+  /** 管理員建立帳號或重設密碼後為 true：改密碼前只能用 /me、改密碼、登出 */
+  mustChangePassword: boolean;
 }
 
 export interface LockoutPolicy {
@@ -42,6 +44,7 @@ export class AuthRepository {
         'r.name as roleName',
         'r.is_system as isSystem',
         'r.perms',
+        'u.must_change_password as mustChangePassword',
       ]);
   }
 
@@ -138,6 +141,6 @@ export class AuthRepository {
   }
 
   async updatePassword(userId: string, passwordHash: string): Promise<void> {
-    await this.db.updateTable('users').set({ password_hash: passwordHash }).where('id', '=', userId).execute();
+    await this.db.updateTable('users').set({ password_hash: passwordHash, must_change_password: false }).where('id', '=', userId).execute();
   }
 }

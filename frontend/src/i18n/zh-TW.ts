@@ -188,6 +188,8 @@ export const zhTW = {
   'password.weak': '新密碼至少 8 碼，且需含英文與數字',
   'password.wrongOld': '目前密碼錯誤',
   'password.done': '密碼已更新',
+  'password.forced': '帳號由管理員建立或密碼已被重設，請先設定自己的新密碼才能使用系統。',
+  'password.same': '新密碼不能與目前密碼相同',
 
   'task.status.pending_approval': '待審批',
   'task.status.queued': '排隊中',

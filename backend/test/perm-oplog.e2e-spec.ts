@@ -32,6 +32,7 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
     get: (url: string) => http().get(url).set('Authorization', `Bearer ${token}`),
     post: (url: string) => http().post(url).set('Authorization', `Bearer ${token}`),
     patch: (url: string) => http().patch(url).set('Authorization', `Bearer ${token}`),
+    put: (url: string) => http().put(url).set('Authorization', `Bearer ${token}`),
     delete: (url: string) => http().delete(url).set('Authorization', `Bearer ${token}`),
   });
 
@@ -179,6 +180,32 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
       await as(admin.token).patch(`/api/v1/users/${admin.id}`).send({ enabled: false }).expect(409);
       await as(admin.token).patch(`/api/v1/users/${admin.id}`).send({ roleId: testRoleId }).expect(409);
       await as(admin.token).delete(`/api/v1/users/${admin.id}`).expect(409);
+    });
+
+    it('管理員建立帳號或重設密碼後，使用者必須先改密碼才能用其他功能', async () => {
+      const created = await as(admin.token)
+        .post('/api/v1/users')
+        .send({ username: `${tag}-fresh`, displayName: '新人', password: 'Abcd1234', roleId: testRoleId })
+        .expect(201);
+      createdUsers.push(created.body.id);
+
+      const first = await http().post('/api/v1/auth/login').send({ username: `${tag}-fresh`, password: 'Abcd1234' }).expect(200);
+      expect(first.body.mustChangePassword).toBe(true);
+      const tok = first.body.accessToken as string;
+      const blocked = await as(tok).get('/api/v1/robots').expect(403);
+      expect(blocked.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+      expect((await as(tok).get('/api/v1/me').expect(200)).body.mustChangePassword).toBe(true);
+      await as(tok).put('/api/v1/auth/password').send({ oldPassword: 'Abcd1234', newPassword: 'Mine1234' }).expect(204);
+      expect((await as(tok).get('/api/v1/me').expect(200)).body.mustChangePassword).toBe(false);
+      await as(tok).get('/api/v1/robots').expect(200);
+
+      // 重設密碼後又要改
+      const reset = await as(admin.token).post(`/api/v1/users/${created.body.id}/reset-password`).expect(200);
+      const again = await http().post('/api/v1/auth/login').send({ username: `${tag}-fresh`, password: reset.body.tempPassword }).expect(200);
+      expect(again.body.mustChangePassword).toBe(true);
+      await as(again.body.accessToken).get('/api/v1/robots').expect(403);
+      // 登出仍可用
+      await as(again.body.accessToken).post('/api/v1/auth/logout').expect(204);
     });
 
     it('刪除帳號後操作日誌仍可依帳號查到', async () => {

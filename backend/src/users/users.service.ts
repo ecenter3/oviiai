@@ -89,6 +89,8 @@ export class UsersService {
           role_id: dto.roleId,
           phone: dto.phone ?? null,
           email: dto.email ?? null,
+          // 密碼是管理員設的：使用者第一次登入要先改
+          must_change_password: true,
         })
         .returning('id')
         .executeTakeFirstOrThrow();
@@ -152,7 +154,7 @@ export class UsersService {
     const pw = tempPassword();
     const r = await this.db
       .updateTable('users')
-      .set({ password_hash: await hashPassword(pw), failed_logins: 0, locked_until: null })
+      .set({ password_hash: await hashPassword(pw), failed_logins: 0, locked_until: null, must_change_password: true })
       .where('id', '=', id)
       .executeTakeFirst();
     if (!r.numUpdatedRows) throw new AppError('NOT_FOUND', '找不到帳號');

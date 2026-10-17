@@ -1,6 +1,6 @@
 import type { PermCode } from '@oviiai/contracts';
 import { create } from 'zustand';
-import { api } from '../api/client';
+import { api, onPasswordChangeRequired } from '../api/client';
 import * as session from '../api/session';
 
 export interface Me {
@@ -14,22 +14,26 @@ interface AuthState {
   status: 'loading' | 'authed' | 'anon';
   user: Me | null;
   perms: string[];
+  /** 管理員建立帳號或重設密碼後：改密碼前只能改密碼或登出 */
+  mustChangePassword: boolean;
   /** 被動登出（過期）時登入頁顯示提示 */
   expired: boolean;
   init(): Promise<void>;
   login(username: string, password: string): Promise<void>;
   logout(): Promise<void>;
+  passwordChanged(): void;
   can(...codes: PermCode[]): boolean;
 }
 
 async function loadMe() {
-  return api<{ user: Me; perms: string[] }>('/me');
+  return api<{ user: Me; perms: string[]; mustChangePassword?: boolean }>('/me');
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
   status: 'loading',
   user: null,
   perms: [],
+  mustChangePassword: false,
   expired: false,
 
   /** 開啟頁面：access token 只在記憶體，先用 refresh cookie 換一個，再讀 /me */
@@ -38,7 +42,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (!token) return set({ status: 'anon', user: null, perms: [] });
     try {
       const me = await loadMe();
-      set({ status: 'authed', user: me.user, perms: me.perms, expired: false });
+      set({ status: 'authed', user: me.user, perms: me.perms, mustChangePassword: !!me.mustChangePassword, expired: false });
     } catch {
       set({ status: 'anon', user: null, perms: [] });
     }
@@ -46,11 +50,15 @@ export const useAuth = create<AuthState>((set, get) => ({
 
   async login(username, password) {
     const r = await session.login(username, password);
-    set({ status: 'authed', user: r.user, perms: r.perms, expired: false });
+    set({ status: 'authed', user: r.user, perms: r.perms, mustChangePassword: !!r.mustChangePassword, expired: false });
   },
 
   async logout() {
     await session.logout();
+  },
+
+  passwordChanged() {
+    set({ mustChangePassword: false });
   },
 
   can(...codes) {
@@ -63,10 +71,14 @@ export const useAuth = create<AuthState>((set, get) => ({
 session.onSessionChange((token, reason) => {
   const s = useAuth.getState();
   if (!token && s.status !== 'anon') {
-    useAuth.setState({ status: 'anon', user: null, perms: [], expired: reason === 'expired' });
+    useAuth.setState({ status: 'anon', user: null, perms: [], mustChangePassword: false, expired: reason === 'expired' });
   } else if (token && reason === 'refresh' && s.status === 'anon') {
     void loadMe()
-      .then((me) => useAuth.setState({ status: 'authed', user: me.user, perms: me.perms, expired: false }))
+      .then((me) => useAuth.setState({ status: 'authed', user: me.user, perms: me.perms, mustChangePassword: !!me.mustChangePassword, expired: false }))
       .catch(() => {});
   }
+});
+
+onPasswordChangeRequired(() => {
+  if (useAuth.getState().status === 'authed') useAuth.setState({ mustChangePassword: true });
 });

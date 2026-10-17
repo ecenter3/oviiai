@@ -88,6 +88,7 @@ describe('AuthService', () => {
       passwordHash: await hashPassword('Secret123'),
       enabled: true,
       lockedUntil: null,
+      mustChangePassword: false,
       roleId: 'r1',
       roleName: '警衛',
       isSystem: false,
@@ -174,6 +175,7 @@ describe('AuthService', () => {
       'VALIDATION_FAILED',
     );
 
+    expect((await errorOf(svc.changePassword(actor, 'Secret123', 'Secret123', here.refreshToken, null))).code).toBe('VALIDATION_FAILED');
     await svc.changePassword(actor, 'Secret123', 'NewPass456', here.refreshToken, null);
     expect((await errorOf(svc.refresh(other.refreshToken))).code).toBe('UNAUTHENTICATED');
     await svc.refresh(here.refreshToken);
