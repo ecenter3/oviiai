@@ -46,7 +46,16 @@ export class IntercomService implements OnModuleInit, OnModuleDestroy {
    * 對講被結束（不是自己按掛斷）：通知對講者的瀏覽器（WebSocket talk.ended）。
    * robot_failed：轉接器拉流失敗或中斷；stopped：系統管理員結束。
    */
-  readonly ended$ = new Subject<{ userId: string; robotId: string; code: string; reason: 'robot_failed' | 'stopped'; by?: string; detail?: string }>();
+  readonly ended$ = new Subject<{
+    userId: string;
+    robotId: string;
+    code: string;
+    reason: 'robot_failed' | 'stopped';
+    /** 誰結束的（顯示名稱）；byUserId 與對講者相同表示本人在別的視窗或裝置結束 */
+    by?: string;
+    byUserId?: string;
+    detail?: string;
+  }>();
   /** 進行中的對講（顯示用；是否有人在講以 MediaMTX 路徑是否有推流者為準） */
   private readonly sessions = new Map<string, { userId: string; username: string; since: number }>();
 
@@ -141,11 +150,13 @@ export class IntercomService implements OnModuleInit, OnModuleDestroy {
     const r = await this.registry.resolveId(robotId);
     if (!r) throw new AppError('NOT_FOUND', '找不到機器人或已停用');
     const s = this.sessions.get(r.code);
-    if (s && s.userId !== actor.sub) {
-      if (!actor.isSystem) {
-        throw new AppError('INVALID_STATE', `${r.code} 正由 ${s.username} 對講中，只有對講者本人或系統管理員能結束`, { holder: s.username });
-      }
-      this.ended$.next({ userId: s.userId, robotId: r.id, code: r.code, reason: 'stopped', by: actor.username });
+    if (s && s.userId !== actor.sub && !actor.isSystem) {
+      throw new AppError('INVALID_STATE', `${r.code} 正由 ${s.username} 對講中，只有對講者本人或系統管理員能結束`, { holder: s.username });
+    }
+    if (s) {
+      // 通知對講者的畫面（系統管理員結束、或本人在別的視窗結束），並踢掉推流：不然那個視窗的麥克風還開著、
+      // 路徑一直被佔住。對講者自己按掛斷時畫面已先收掉，收到通知不會再動作；推流也已先結束，踢不到。
+      this.ended$.next({ userId: s.userId, robotId: r.id, code: r.code, reason: 'stopped', by: actor.displayName, byUserId: actor.sub });
       await this.mtx.kickPublisher(talkStreamKey(r.code));
     }
     this.sessions.delete(r.code);

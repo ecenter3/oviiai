@@ -21,6 +21,7 @@ import { MqttService } from '../src/mqtt/mqtt.service';
 import { IntercomService } from '../src/intercom/intercom.service';
 import { StorageService } from '../src/storage/storage.service';
 import { FakeStorage } from './fake-storage';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -140,7 +141,7 @@ describe.skipIf(!ready)('雙向對講（e2e，T-31）', () => {
     await until(() => app.get(MqttService).connected);
     guard = await makeUser(['remote', 'op.remote']);
     viewer = await makeUser(['remote']);
-    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-talk-${tag}` });
+    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-talk-${tag}`, ...testMqttAuth() });
     await adapter.subscribeAsync([LIVE, PTT, NONE].map((c) => `rms/robot/${c}/cmd`), { qos: 1 });
     adapter.on('message', (topic, payload) => {
       const m = JSON.parse(payload.toString());
@@ -225,7 +226,21 @@ describe.skipIf(!ready)('雙向對講（e2e，T-31）', () => {
     await as(admin, http().delete(`/api/v1/robots/${ids[LIVE]}/talk`)).expect(204);
     expect(mtx.kicked).toContain(`talk/${LIVE}`);
     await until(() => cmds.filter((c) => c.type === 'talk_stop').length > stops);
-    expect(ended).toEqual([expect.objectContaining({ robotId: ids[LIVE], code: LIVE, reason: 'stopped', by: `${tag}-admin` })]);
+    expect(ended).toEqual([expect.objectContaining({ robotId: ids[LIVE], code: LIVE, reason: 'stopped', by: `${tag}-admin`, byUserId: expect.any(String) })]);
+    sub.unsubscribe();
+  });
+
+  it('對講者本人在別的視窗結束：一樣踢掉推流並通知原本的視窗', async () => {
+    const ended: { userId: string; byUserId?: string; reason: string }[] = [];
+    const sub = app.get(IntercomService).ended$.subscribe((e) => ended.push(e));
+    await as(guard, http().post(`/api/v1/robots/${ids[LIVE]}/talk`)).expect(200);
+    mtx.publishing.add(`talk/${LIVE}`);
+    await as(guard, http().post(`/api/v1/robots/${ids[LIVE]}/talk/started`)).expect(200);
+    mtx.kicked.length = 0;
+    await as(guard, http().delete(`/api/v1/robots/${ids[LIVE]}/talk`)).expect(204);
+    expect(mtx.kicked).toContain(`talk/${LIVE}`);
+    expect(ended).toEqual([expect.objectContaining({ reason: 'stopped' })]);
+    expect(ended[0].byUserId).toBe(ended[0].userId);
     sub.unsubscribe();
   });
 

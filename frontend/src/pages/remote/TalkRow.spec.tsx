@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAuth } from '../../stores/auth';
 import { useTalkEvents } from '../../stores/talk';
 import { useToast } from '../../stores/toast';
 import { TalkRow } from './TalkRow';
@@ -158,6 +159,17 @@ describe('方案 A 即時對講', () => {
     expect(screen.getByRole('button', { name: '掛斷' })).toBeTruthy();
     act(() => useTalkEvents.getState().setEnded({ robotId: 'r1', code: 'B2-001', reason: 'stopped', by: '值班主管' }));
     await waitFor(() => expect(toasts()).toContain('對講已被 值班主管 結束'));
+  });
+
+  it('本人在別的視窗結束：提示「已在其他視窗結束」，不再通知後端', async () => {
+    useAuth.setState({ user: { id: 'u-me', username: 'me', displayName: '我', role: { id: 'r', name: '警衛' } } });
+    render(<TalkRow robotId="r1" caps={['talk_live']} online onLive={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: '對講' }));
+    await screen.findByRole('button', { name: '掛斷' });
+    act(() => useTalkEvents.getState().setEnded({ robotId: 'r1', code: 'B2-001', reason: 'stopped', by: '我', byUserId: 'u-me' }));
+    await waitFor(() => expect(toasts()).toContain('對講已在其他視窗結束'));
+    expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/v1/robots/r1/talk')).toBe(false);
+    useAuth.setState({ user: null });
   });
 
   it('離開頁面（卸載）時掛斷', async () => {
