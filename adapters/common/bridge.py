@@ -28,6 +28,17 @@ MOVE_COMMANDS = frozenset({"navigate", "patrol", "charge", "stop", "estop"})
 RECONNECT_DELAY_S = 3.0
 
 
+def clamp_teleop(t: Teleop, limit: float | None) -> Teleop:
+    """平移速度不超過參數「導航速度」（方向不變，等比例縮小）；角速度不限"""
+    if limit is None:
+        return t
+    v = (t.vx ** 2 + t.vy ** 2) ** 0.5
+    if v <= limit:
+        return t
+    k = limit / v
+    return t.model_copy(update={"vx": t.vx * k, "vy": t.vy * k})
+
+
 def _json(model: Any) -> str:
     return model.model_dump_json(exclude_none=True)
 
@@ -190,7 +201,7 @@ class Bridge:
             log.warning("%s teleop ignored: robot is in emergency stop", d.code)
             return
         try:
-            t = Teleop.model_validate_json(payload)
+            t = clamp_teleop(Teleop.model_validate_json(payload), d.speed_limit())
             await d.teleop(t)
             self._teleop_deadline[d.code] = asyncio.get_running_loop().time() + TELEOP_TIMEOUT_S
         except (ValidationError, CommandError) as e:
@@ -231,6 +242,13 @@ class Bridge:
             # 移動指令開始前一定換成最新的校正：目標座標用新的轉換換算
             if cmd.type in MOVE_COMMANDS and d.apply_pending_transform(force=True):
                 log.info("%s 送 %s 前套用新的座標校正", d.code, cmd.type)
+            if cmd.type == "set_params":
+                params = cmd.args["params"]
+                d.params = params
+                await d.apply_params(params)
+                log.info("%s 參數已更新（導航速度 %s m/s）", d.code, d.speed_limit())
+                await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="done"))
+                return
             coro = d.execute(cmd)
             result = await (asyncio.wait_for(coro, cmd.timeoutSec) if cmd.timeoutSec else coro)
             await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="done", result=result))

@@ -4,6 +4,7 @@ import { api, ApiError } from '../../api/client';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { formatTime, t, type MessageKey } from '../../i18n';
 import { type MediaItem, useMedia } from '../../stores/media';
+import { useAuth } from '../../stores/auth';
 import { useToast } from '../../stores/toast';
 
 interface Options {
@@ -141,7 +142,10 @@ export function CapturesPage() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [view, setView] = useState<MediaItem | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const canDelete = useAuth((st) => st.can('op.media'));
   const items = list.data?.items ?? [];
+  // 告警證據不能手動刪（後端回 409），不讓它被選取
+  const deletable = items.filter((i) => !i.alarmId);
   const toggle = (id: string) => setSel((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : new Set(s).add(id)));
 
   async function remove() {
@@ -161,12 +165,16 @@ export function CapturesPage() {
         <div className="pane-head">
           <span className="title">{t('page.captures')}</span>
           <span className="meta">{t('media.captures.meta', { n: list.data?.total ?? 0 })}</span>
-          <button type="button" className="obtn" onClick={() => setSel(sel.size === items.length ? new Set() : new Set(items.map((i) => i.id)))}>
-            {sel.size && sel.size === items.length ? t('media.unselectAll') : t('media.selectAll')}
-          </button>
-          <button type="button" className="obtn red" disabled={!sel.size} onClick={() => setConfirm(true)}>
-            {t('media.delete', { n: sel.size })}
-          </button>
+          {canDelete && (
+            <>
+              <button type="button" className="obtn" disabled={!deletable.length} onClick={() => setSel(sel.size && sel.size === deletable.length ? new Set() : new Set(deletable.map((i) => i.id)))}>
+                {sel.size && sel.size === deletable.length ? t('media.unselectAll') : t('media.selectAll')}
+              </button>
+              <button type="button" className="obtn red" disabled={!sel.size} onClick={() => setConfirm(true)}>
+                {t('media.delete', { n: sel.size })}
+              </button>
+            </>
+          )}
         </div>
         <div className="scroll">
           {items.length === 0 ? (
@@ -178,9 +186,16 @@ export function CapturesPage() {
                   <button type="button" className="thumb" aria-label={t('media.view', { who: whoOf(m) })} onClick={() => setView(m)}>
                     <img src={m.url} alt={`${whoOf(m)} ${formatTime(m.createdAt)}`} loading="lazy" />
                   </button>
-                  <button type="button" className="tick" aria-label={t('media.select')} aria-pressed={sel.has(m.id)} onClick={() => toggle(m.id)}>
-                    {sel.has(m.id) ? '✓' : ''}
-                  </button>
+                  {canDelete &&
+                    (m.alarmId ? (
+                      <span className="tick lock" title={t('media.evidence')} aria-label={t('media.evidence')}>
+                        🔒
+                      </span>
+                    ) : (
+                      <button type="button" className="tick" aria-label={t('media.select')} aria-pressed={sel.has(m.id)} onClick={() => toggle(m.id)}>
+                        {sel.has(m.id) ? '✓' : ''}
+                      </button>
+                    ))}
                   <div className="cap">
                     <b>{whoOf(m)}</b>
                     <span className={`badge2 ${SOURCE_TONE[m.source]}`}>{t(`media.source.snapshot.${m.source}` as MessageKey)}</span>

@@ -91,10 +91,13 @@ export class MediaController {
     return { url: (await this.media.downloadUrl(id, q.download === '1')).url };
   }
 
-  /** 刪除（可多筆；原型「全選」「刪除」） */
+  /**
+   * 刪除（可多筆；原型「全選」「刪除」）。要有操作權限 op.media，且看得到該種類（PR #12 審查第 1 點）；
+   * 告警關聯的檔案是證據，不能手動刪，只能由保存期限排程清除（409）。
+   */
   @Post('delete')
   @HttpCode(200)
-  @RequireAnyPerm('captures', 'records')
+  @RequirePerm('op.media')
   @OpLog('media.delete', () => 'media')
   async remove(@Body(new ZodPipe(DeleteBody)) b: z.infer<typeof DeleteBody>, @CurrentUser() user: Principal) {
     for (const id of b.ids) checkKind(user, await this.media.kindOf(id));
@@ -103,7 +106,7 @@ export class MediaController {
 
   @Delete(':id')
   @HttpCode(204)
-  @RequireAnyPerm('captures', 'records')
+  @RequirePerm('op.media')
   @OpLog('media.delete', target)
   async removeOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: Principal) {
     checkKind(user, await this.media.kindOf(id));

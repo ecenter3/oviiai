@@ -10,6 +10,10 @@ geo $adapter_net {
     127.0.0.1      1;
 }
 
+# 不記查詢字串的存取日誌：WHEP 網址帶播放權杖 ?token=（60 秒有效），不寫進日誌（PR #12 審查第 4 點）
+log_format noquery '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+                   '$status $body_bytes_sent "$http_user_agent"';
+
 upstream api { server api:3000; keepalive 16; }
 
 server {
@@ -42,6 +46,7 @@ server {
 
     # 影像（WebRTC WHEP）：轉給 MediaMTX，播放憑證由後端核發、MediaMTX 回呼後端驗證（T-29）
     location /media/ {
+        access_log /var/log/nginx/access.log noquery;
         proxy_pass http://mediamtx:8889/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

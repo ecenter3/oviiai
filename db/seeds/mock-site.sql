@@ -3,13 +3,15 @@
 
 -- 6 台模擬機器人（adapters/mock/robots.yaml），adapter = 'mock'
 INSERT INTO robots (code, brand, model, floor_id, adapter, caps) VALUES
- ('B2-001',    'unitree', 'B2',      '1f', 'mock', '{ptz,light}'),
- ('B2-002',    'unitree', 'B2',      '1f', 'mock', '{ptz,light}'),
+ ('B2-001',    'unitree', 'B2',      '1f', 'mock', '{ptz,light,follow}'),
+ ('B2-002',    'unitree', 'B2',      '1f', 'mock', '{ptz,light,follow}'),
  ('X30-001',   'deep',    'X30',     '2f', 'mock', '{}'),
  ('X30-002',   'deep',    'X30',     '2f', 'mock', '{}'),
  ('ANBOT-001', 'anbot',   'ANBOT-Y', 'b1', 'mock', '{ptz,light,talk}'),
  ('ANBOT-002', 'anbot',   'ANBOT-Y', 'b1', 'mock', '{ptz,light,talk}')
 ON CONFLICT (code) DO NOTHING;
+-- 模擬器支援跟隨（T-30）：舊的開發資料庫補上
+UPDATE robots SET caps = array_append(caps, 'follow') WHERE code IN ('B2-001', 'B2-002') AND adapter = 'mock' AND NOT ('follow' = ANY (caps));
 
 -- 樓層尺寸（公尺）：只在尚未設定時填入，比例參考原型平面圖
 UPDATE floors SET width_m = 40, height_m = 36 WHERE id = '1f' AND width_m IS NULL;

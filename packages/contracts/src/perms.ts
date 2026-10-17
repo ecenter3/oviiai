@@ -71,6 +71,7 @@ export const PERM_TREE = [
       { code: 'op.approve', name: '審核派工' },
       { code: 'op.alarm', name: '處理告警' },
       { code: 'op.config', name: '修改設定' },
+      { code: 'op.media', name: '刪除抓拍與錄影' },
     ],
   },
 ] as const;

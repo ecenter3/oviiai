@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { RequirePerm } from '../auth/perm.decorator';
+import { RequireAnyPerm } from '../auth/perm.decorator';
 import { ZodPipe } from '../common/zod.pipe';
 import { TeleopLock } from '../commands/teleop-lock.service';
 import { KYSELY, type Database } from '../db/database.module';
@@ -14,7 +14,7 @@ const RobotQuery = z.object({
 });
 
 /**
- * GET /robots（介面規格：robots 權限）：登記的機器人＋即時狀態（Redis／記憶體）＋遙控鎖＋目前任務。
+ * GET /robots（介面規格：robots 權限；遙控頁、參數頁也用）：登記的機器人＋即時狀態（Redis／記憶體）＋遙控鎖＋目前任務。
  * 品牌只是資料欄位（篩選、顯示），不影響任何行為。新增修改停用是機器人管理（T-25）。
  */
 @Controller('robots')
@@ -25,8 +25,9 @@ export class RobotsController {
     private readonly lock: TeleopLock,
   ) {}
 
+  /** 實時遙控頁（remote）、機器人參數頁（params）也要選機器人 */
   @Get()
-  @RequirePerm('robots')
+  @RequireAnyPerm('robots', 'remote', 'params')
   async list(@Query(new ZodPipe(RobotQuery)) q: z.infer<typeof RobotQuery>) {
     let query = this.db
       .selectFrom('robots')

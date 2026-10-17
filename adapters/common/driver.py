@@ -32,6 +32,8 @@ class RobotDriver(ABC):
         #: bridge 每次讀遙測後記下的狀態（判斷能不能換座標轉換）
         self.last_state: str | None = None
         self._pending: Affine2D | None = None
+        #: 後端「機器人參數」四個子系統（set_params；T-27）。共通層只用 walk.speed 限制遙控速度
+        self.params: dict[str, Any] = {}
 
     # ---- 座標校正（後端 /adapter-config 的 calib；PR #11 審查第 2 點）----
     MOVING_STATES = frozenset({"navigating", "patrolling", "returning", "teleop"})
@@ -61,6 +63,15 @@ class RobotDriver(ABC):
         self.set_transform(self._pending)
         return True
 
+    # ---- 機器人參數（T-27）----
+    def speed_limit(self) -> float | None:
+        """參數「導航速度」（m/s）；沒設定回 None。遙控速度不得超過它（機器人接入 §2）"""
+        v = (self.params.get("walk") or {}).get("speed")
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
+    async def apply_params(self, params: dict[str, Any]) -> None:
+        """把參數套用到機器人。各品牌覆寫，只套用 SDK 支援的項目；預設不做事（只由共通層記住）。"""
+
     # ---- 生命週期 ----
     @abstractmethod
     async def connect(self) -> None: ...
@@ -80,6 +91,11 @@ class RobotDriver(ABC):
     # ---- 指令 ----
     async def validate(self, cmd: Command) -> None:
         """在回 accepted 之前呼叫；不能執行就 raise CommandError（回 rejected）。"""
+        if cmd.type == "set_params":
+            # 共通層處理（記住參數、限制遙控速度），每個品牌都接受
+            if not isinstance(cmd.args.get("params"), dict):
+                raise CommandError("BAD_ARGS", "set_params requires args.params")
+            return
         if cmd.type not in self.capabilities:
             raise CommandError("UNSUPPORTED", f"{self.code} does not support '{cmd.type}'")
 

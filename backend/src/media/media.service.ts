@@ -1,6 +1,6 @@
-import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Subject } from 'rxjs';
@@ -64,6 +64,8 @@ interface Running {
 }
 
 const TMP = join(tmpdir(), 'oviiai-rec');
+/** 啟動時清掉超過這個時間的暫存錄影（後端被 kill 或當掉時留下的；PR #12 審查第 3 點） */
+const STALE_TMP_MS = 60 * 60_000;
 const day = (d: Date) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei' }).format(d).replace(/-/g, '');
 
 /**
@@ -71,7 +73,7 @@ const day = (d: Date) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taip
  * 存到物件儲存（SeaweedFS，S3 相容）media/，紀錄寫 media 表；瀏覽器以 5 分鐘預簽名網址讀取。
  */
 @Injectable()
-export class MediaService implements OnModuleDestroy {
+export class MediaService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Media');
   private readonly running = new Map<string, Running>();
   /** 新的抓拍或錄影（WebSocket media.new） */
@@ -85,6 +87,13 @@ export class MediaService implements OnModuleDestroy {
     private readonly streams: StreamsService,
     private readonly settings: SettingsService,
   ) {}
+
+  onModuleInit() {
+    void cleanTmp(TMP, STALE_TMP_MS).then(
+      (n) => n && this.log.warn(`清除 ${n} 個殘留的錄影暫存檔（上次異常結束）`),
+      (e) => this.log.warn(`清除錄影暫存檔失敗：${e instanceof Error ? e.message : e}`),
+    );
+  }
 
   async onModuleDestroy() {
     // 關機前把錄到一半的收尾、上傳
@@ -184,7 +193,7 @@ export class MediaService implements OnModuleDestroy {
       const startedAt = new Date(r.rec.startedAt);
       const endedAt = new Date(r.rec.endedAt ?? Date.now());
       const key = `media/clips/${day(startedAt)}/${id}.mp4`;
-      await this.storage.put(key, await readFile(file), 'video/mp4');
+      await this.storage.putFile(key, file, 'video/mp4');
       await this.db
         .insertInto('media')
         .values({
@@ -264,8 +273,11 @@ export class MediaService implements OnModuleDestroy {
     return r.kind;
   }
 
+  /** 手動刪除；有任何一筆是告警證據就整批拒絕（不部分刪除） */
   async remove(ids: string[]): Promise<number> {
-    const rows = await this.db.selectFrom('media').select(['id', 'object_key']).where('id', 'in', ids).execute();
+    const rows = await this.db.selectFrom('media').select(['id', 'object_key', 'alarm_id']).where('id', 'in', ids).execute();
+    const evidence = rows.filter((r) => r.alarm_id).map((r) => r.id);
+    if (evidence.length) throw new AppError('INVALID_STATE', '告警關聯的檔案是證據，不能手動刪除，保存期滿會自動清除', { ids: evidence });
     for (const r of rows) await this.storage.remove(r.object_key).catch(() => undefined);
     if (rows.length) await this.db.deleteFrom('media').where('id', 'in', rows.map((r) => r.id)).execute();
     return rows.length;
@@ -357,4 +369,26 @@ async function waitForFile(file: string, ms: number): Promise<boolean> {
     await new Promise((r) => setTimeout(r, 200));
   }
   return false;
+}
+
+/**
+ * 刪除暫存目錄裡超過 maxAgeMs 沒更新的檔案，回傳刪除數。
+ * 只刪舊的：同一台機器上可能有另一個後端（例：開發時同時跑 e2e）正在錄影。
+ * 沒有正常收尾的 MP4 缺索引（moov）無法播放，所以不上傳。
+ */
+export async function cleanTmp(dir: string, maxAgeMs: number, now = Date.now()): Promise<number> {
+  const names = await readdir(dir).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return [] as string[];
+    throw e;
+  });
+  let n = 0;
+  for (const name of names) {
+    const f = join(dir, name);
+    const st = await stat(f).catch(() => null);
+    if (st?.isFile() && now - st.mtimeMs > maxAgeMs) {
+      await rm(f, { force: true });
+      n++;
+    }
+  }
+  return n;
 }

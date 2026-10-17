@@ -7,6 +7,7 @@ import { type ChargingFloor, useCharging } from '../stores/charging';
 import { type ActiveRecording, useMedia } from '../stores/media';
 import { type CmdResult, type RobotLive, type Stats, useRealtime } from '../stores/realtime';
 import { type Task, useTasks } from '../stores/tasks';
+import { type TeleopError, type TeleopRevoked, useTeleopEvents } from '../stores/teleop';
 import { useToast } from '../stores/toast';
 import { playAlarm } from './sound';
 
@@ -67,11 +68,11 @@ export function connectRealtime(): void {
   // 抓拍、錄影（T-28）
   socket.on('media.new', () => useMedia.getState().bump());
   socket.on('media.recording', (m: { active: ActiveRecording[] }) => useMedia.getState().setRecordings(m.active));
-  socket.on('teleop.revoked', (m: { code: string; by: string; reason: 'takeover' | 'estop' }) =>
-    useToast
-      .getState()
-      .show(m.reason === 'estop' ? t('teleop.revoked.estop', { code: m.code }) : t('teleop.revoked.takeover', m), 'warn'),
-  );
+  socket.on('teleop.revoked', (m: Omit<TeleopRevoked, 'at'>) => {
+    useTeleopEvents.getState().setRevoked(m);
+    useToast.getState().show(m.reason === 'estop' ? t('teleop.revoked.estop', { code: m.code }) : t('teleop.revoked.takeover', m), 'warn');
+  });
+  socket.on('teleop.error', (m: Omit<TeleopError, 'at'>) => useTeleopEvents.getState().setError(m));
 
   let last = useRealtime.getState().watch;
   unwatch = useRealtime.subscribe((s) => {

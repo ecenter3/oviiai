@@ -46,6 +46,10 @@ log_parameter_max_length_on_error = 0
 - 舊版（PR #10 以前）建立或修改攝影機的日誌可能含 RTSP 明文帳密：正式環境若曾用過舊版，部署後執行
   `DELETE FROM op_logs WHERE action IN ('camera.create','camera.update') AND detail::text ~ '://[^"/@[:space:]]+@';`
 
+## 4-1. 刪除抓拍與錄影的權限（PR #12 審查第 1 點）
+- 刪除改為操作權限 `op.media`（「刪除抓拍與錄影」），migration 只預設給**系統管理員**；其他角色要刪，由系統管理員在「角色管理」勾選。
+- 與告警關聯的抓拍、錄影是證據，任何人都不能手動刪（回 409），只能由保存期限排程（1 年）清除。
+
 ## 5. 資料保存期限
 - 每日 03:30（台北）清除超過 1 年的已結束任務（含歷程）、已結束告警（含處理歷程）、操作日誌；刪除前先匯出 CSV 到物件儲存 `retention/` 備查。
 - **備查檔本身的保存期限待業主確認**（PR #10 審查第 5 點）：目前 `retention/*.csv` 會一直留著。確定年限後在 SeaweedFS 設 TTL（例：`weed shell` → `fs.configure -locationPrefix=/buckets/rms/retention/ -ttl=3y -apply`），並寫回這裡。
@@ -57,10 +61,17 @@ log_parameter_max_length_on_error = 0
   - 這個回呼**只給 MediaMTX 用**：Nginx 不轉送 `/internal/`，後端的 3000 埠只開放給本機與 MediaMTX 容器（防火牆）。
   - 瀏覽器帶後端發的播放憑證（60 秒有效，綁定路徑與使用者）。
   - 後端抓拍、錄影用內部帳號 `MEDIA_INTERNAL_USER` / `MEDIA_INTERNAL_PASSWORD`，**正式環境必須設**（`openssl rand -hex 24`），沒設後端不會啟動。
+- **播放權杖不進日誌**（PR #12 審查第 4 點）：WHEP 網址帶 `?token=`（60 秒有效、綁路徑與使用者）。Nginx 的 `location /media/` 改用不含查詢字串的 `log_format noquery`（記 `$uri` 不記 `$request`），範例設定已處理；`Referer` 也不記（2026-10-17 以 nginx 1.27 實測：access log 只有 `GET /media/cam/X/whep`）。**注意**：Nginx 的 error log 在連不上 MediaMTX 等錯誤時仍會記完整請求列（含權杖），這無法用 log_format 關掉；權杖 60 秒即失效，error log 權限設為僅 root 與維運人員可讀即可。MediaMTX 在 `logLevel: info` 不記查詢字串（2026-10-17 以開發環境日誌確認），不要調成 `debug`。若之後讓瀏覽器經 Nginx 連 S3 預先簽名網址，該 location 也要用 `noquery`（簽名在查詢字串）。
 - `MEDIA_PUBLIC_URL`：瀏覽器連 WHEP 的位址，正式環境經 Nginx 為 `https://<主機>/media`（範例設定的 `location /media/`）。
 - WebRTC 媒體走 TCP 8189（`webrtcLocalTCPAddress`），`webrtcAdditionalHosts` 要改成**瀏覽器連得到的主機 IP**（開發是 127.0.0.1）。防火牆對控制室網段開 8189/TCP。
 - `MEDIA_TEST_SOURCE` 正式環境預設關閉，**不要設成 true**（會讓攝影機改播測試影像）。
 - 後端用 ffmpeg 抓拍與錄影：預設用 npm 套件 `ffmpeg-static`，也可用 `FFMPEG_PATH` 指定系統的 ffmpeg。靜態編譯的 ffmpeg 不能自己解析主機名稱（會當掉），後端已先把 `MEDIAMTX_RTSP` 的主機名解析成 IP 再交給它。
 - 抓拍、錄影檔放物件儲存，瀏覽器用預先簽名網址直接下載：`S3_PUBLIC_ENDPOINT` 設成**瀏覽器連得到**的 SeaweedFS S3 位址（簽名含主機名，不能事後改寫）。
 - 錄影單段上限 `media.maxRecordSec`（預設 600 秒）；同時播放上限 `media.maxStreams`（預設 16 路）。
+- 錄影先寫到後端主機暫存目錄（`$TMPDIR/oviiai-rec/`），結束後以串流分段上傳到物件儲存（每段 8 MB，不整檔讀進記憶體），上傳完刪除。後端異常結束留下的暫存檔，下次啟動時清掉超過 1 小時的（沒正常收尾的 MP4 缺索引，無法播放，不上傳）。暫存目錄所在磁碟至少留「同時錄影路數 × 300 MB」。
+
+## 7. 遙控與機器人參數（T-30、T-27）
+- 遙控速度經 WebSocket 每 100 ms 一筆；轉接器 500 ms 沒收到就停車。Nginx 的 `/ws` 要開 WebSocket（範例已設），不要加會緩衝的代理。
+- 遙控鎖 30 秒 TTL；遙控頁沒在動時每 10 秒送一筆零速度續期，關閉分頁時以 keepalive 請求釋鎖。
+- 機器人參數存在資料庫，儲存後與機器人上線時都會送 `set_params`；轉接器重啟後會在上線時拿到最新參數，不需要手動重送。
 

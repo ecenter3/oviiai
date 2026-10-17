@@ -38,7 +38,7 @@ async def setup():
 
 async def test_rejected_when_unsupported(setup):
     b, _ = setup
-    await b.on_message("rms/robot/B2-001/cmd", cmd("c1", "ptz"))
+    await b.on_message("rms/robot/B2-001/cmd", cmd("c1", "lift", height=100))
     assert b.acks() == [("c1", "rejected", "UNSUPPORTED")]
 
 
@@ -188,3 +188,45 @@ async def test_side_commands_keep_strong_reference_until_done(setup):
     await asyncio.sleep(0)
     assert b._side == set()
     assert ("s1", "done", None) in b.acks() and ("s2", "done", None) in b.acks()
+
+
+async def test_teleop_watchdog_default_500ms(setup):
+    """T-30 驗收「斷訊 500 ms 停車」：用預設值，0.35 秒時還在動，0.7 秒內停下"""
+    b, d = setup
+    assert bridge_mod.TELEOP_TIMEOUT_S == 0.5
+    wd = asyncio.create_task(b._teleop_watchdog())
+    t = json.dumps({"lockId": "L", "vx": 0.5, "vy": 0, "wz": 0, "ts": now_ms()})
+    await b.on_message("rms/robot/B2-001/teleop", t)
+    await asyncio.sleep(0.35)
+    assert d.state == "teleop" and d._vel[0] == 0.5
+    await asyncio.sleep(0.35)
+    assert d.state == "idle" and d._vel == (0.0, 0.0, 0.0)
+    wd.cancel()
+
+
+async def test_set_params_stored_and_limits_teleop_speed(setup):
+    """T-27：set_params 由共通層處理（每個品牌都接受），遙控平移速度不超過「導航速度」"""
+    b, d = setup
+    await b.on_message("rms/robot/B2-001/cmd", cmd("p1", "set_params", params={"walk": {"speed": 0.6}, "video": {}, "talk": {}, "ext": {}}))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    assert ("p1", "done", None) in b.acks()
+    assert d.speed_limit() == 0.6
+    await b.on_message("rms/robot/B2-001/teleop", json.dumps({"lockId": "L", "vx": 1.2, "vy": 1.6, "wz": 2.0, "ts": now_ms()}))
+    vx, vy, wz = d._vel
+    assert (vx, vy) == (pytest.approx(0.36), pytest.approx(0.48)) and wz == 2.0  # 方向不變、等比例縮到 0.6
+    await b.on_message("rms/robot/B2-001/teleop", json.dumps({"lockId": "L", "vx": 0.3, "vy": 0, "wz": 0, "ts": now_ms()}))
+    assert d._vel == (0.3, 0, 0)  # 沒超過不動
+    await b.on_message("rms/robot/B2-001/cmd", cmd("p2", "set_params"))
+    assert ("p2", "rejected", "BAD_ARGS") in b.acks()
+
+
+async def test_mock_ptz_light_follow(setup):
+    b, d = setup
+    await b.on_message("rms/robot/B2-001/cmd", cmd("a", "ptz", pan=-0.25, tilt=0.1, zoom=0))
+    await b.on_message("rms/robot/B2-001/cmd", cmd("b", "light", on=True, mode="fill"))
+    await b.on_message("rms/robot/B2-001/cmd", cmd("c", "follow", personId="P-001"))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    assert d.ptz == (-0.25, 0.1, 0.0) and d.lights == {"fill": True} and d.following == "P-001"
+    await b.on_message("rms/robot/B2-001/cmd", cmd("d", "follow_stop"))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    assert d.following is None
