@@ -38,10 +38,24 @@ def backend_url() -> str:
     return os.getenv("BACKEND_URL", "http://localhost:3000/api/v1").rstrip("/")
 
 
-def fetch_config(base: str, name: str, key: str) -> list[dict[str, Any]]:
+def fetch_adapter_config(base: str, name: str, key: str) -> dict[str, Any]:
+    """整份轉接器設定：robots（機器人清單）、mqtt（後端核發的 MQTT 帳號與憑證，EMQX 有開認證時）"""
     req = urllib.request.Request(f"{base}/adapter-config/{name}", headers={"X-Adapter-Key": key})
     with urllib.request.urlopen(req, timeout=5) as r:  # noqa: S310 — 位址來自設定
-        return json.loads(r.read().decode("utf-8"))["robots"]
+        return json.loads(r.read().decode("utf-8"))
+
+
+def fetch_config(base: str, name: str, key: str) -> list[dict[str, Any]]:
+    return fetch_adapter_config(base, name, key)["robots"]
+
+
+def apply_mqtt_credentials(bridge: Any, cfg: dict[str, Any]) -> None:
+    """把後端核發的 MQTT 憑證交給 bridge（安全收尾 e）。憑證的權限只涵蓋設定裡的機器人，
+    機器人清單變了 bridge 會用新憑證重連。後端沒有核發（EMQX 沒開認證的環境）就不動。"""
+    m = cfg.get("mqtt")
+    if not m:
+        return
+    bridge.set_credentials(m["username"], m["password"], frozenset(r["code"] for r in cfg["robots"]))
 
 
 def transform_of(robot: dict[str, Any]) -> Affine2D:

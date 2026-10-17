@@ -19,6 +19,7 @@ import type { Principal } from '../auth/principal';
 import { visibleCategories } from '../alarms/alarms.controller';
 import { type AlarmCategory, AlarmsService } from '../alarms/alarms.service';
 import { ChargingService } from '../charging/charging.service';
+import { IntercomService } from '../intercom/intercom.service';
 import { MediaService } from '../media/media.service';
 import { CommandBus } from '../commands/command-bus.service';
 import { CommandsService, type TeleopResult } from '../commands/commands.service';
@@ -64,7 +65,7 @@ function wsError(code: string, message: string) {
  * 介面規格 §4：`wss://<host>/ws?token=<accessToken>`（Socket.IO），唯一的即時通道。
  * 驗證只在連線時做一次（PR #2 審查第 4 點）；access token 到期主動斷線，前端以新 token 重連。
  *
- * 伺服器 → 瀏覽器：robot.state、robot.online（fleet）、robot.cmdResult（指令匯流排）、teleop.revoked、teleop.error、
+ * 伺服器 → 瀏覽器：robot.state、robot.online（fleet）、robot.cmdResult（指令匯流排）、teleop.revoked、teleop.error、talk.ended、
  *   stats.tick（每 5 秒，所有連線；連線時先送一次）、task.updated（有 dispatch 或 monitor 權限的連線）、
  *   alarm.new／alarm.updated（依類別：sysalarm 或 monitor 收系統告警，bizalarm 或 monitor 收業務告警）
  * 瀏覽器 → 伺服器：subscribe {floors}、teleop.cmd {robotId, lockId, vx, vy, wz}
@@ -90,6 +91,7 @@ export class RealtimeGateway
     private readonly charging: ChargingService,
     private readonly alarms: AlarmsService,
     private readonly media: MediaService,
+    private readonly intercom: IntercomService,
   ) {}
 
   afterInit(server: Server) {
@@ -116,6 +118,8 @@ export class RealtimeGateway
       this.alarms.updated$.subscribe((m) => server.to(alarmRoom(m.category)).emit('alarm.updated', m)),
       this.media.created$.subscribe((m) => server.to(mediaRoom(m.kind as 'snapshot' | 'clip')).emit('media.new', m)),
       this.media.recordings$.subscribe((m) => server.to(RECORDING_ROOM).emit('media.recording', m)),
+      // 對講被結束（機器人端斷線、管理員結束）：只通知對講者本人
+      this.intercom.ended$.subscribe(({ userId, ...m }) => server.to(userRoom(userId)).emit('talk.ended', m)),
       this.lock.revoked$.subscribe((m) =>
         server.to(userRoom(m.previous.userId)).emit('teleop.revoked', { robotId: m.robotId, code: m.code, by: m.by, reason: m.reason }),
       ),
@@ -196,6 +200,7 @@ export class RealtimeGateway
     }
     const u = await this.users.findById(payload.sub);
     if (!u || !u.enabled) throw wsError('UNAUTHENTICATED', '帳號已停用或不存在');
+    if (u.mustChangePassword) throw wsError('PASSWORD_CHANGE_REQUIRED', '請先修改密碼');
     if (!satisfies(u.perms, WS_PERMS)) throw wsError('FORBIDDEN', '沒有權限查看機器人狀態或告警');
 
     const data = socket.data as SocketData;

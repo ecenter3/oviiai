@@ -286,13 +286,81 @@ def test_talk_url_puts_token_in_userinfo_and_resolves_host():
 
 
 async def test_mock_speak_text_and_audio(setup):
-    """方案 B：按鍵說話的音檔、文字語音都只記錄"""
-    import base64
-    b, d = setup
-    audio = {"mime": "audio/webm", "data": base64.b64encode(b"\x1a\x45\xdf\xa3" * 100).decode(), "durationMs": 2500}
-    await b.on_message("rms/robot/B2-001/cmd", cmd("s1", "speak", audio=audio))
-    await b.on_message("rms/robot/B2-001/cmd", cmd("s2", "speak", text="請離開管制區"))
-    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
-    assert d.spoken == [{"kind": "audio", "mime": "audio/webm", "bytes": 400, "durationMs": 2500}, {"kind": "text", "text": "請離開管制區"}]
-    await b.on_message("rms/robot/B2-001/cmd", cmd("s3", "speak"))
-    assert ("s3", "rejected", "BAD_ARGS") in b.acks()
+    """方案 B：音檔從預簽名網址下載（PR #15 審查第 1 點）；文字語音只記錄"""
+    import http.server
+    import threading
+
+    body = b"\x1a\x45\xdf\xa3" * 100
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        b, d = setup
+        url = f"http://127.0.0.1:{srv.server_port}/rms/speak/x.webm?sig=1"
+        await b.on_message("rms/robot/B2-001/cmd", cmd("s1", "speak", audio={"url": url, "mime": "audio/webm", "bytes": 400, "durationMs": 2500}))
+        await b.on_message("rms/robot/B2-001/cmd", cmd("s2", "speak", text="請離開管制區"))
+        await asyncio.wait_for(asyncio.gather(*list(b._side)), 3)
+        # 下載比文字慢，完成順序不一定
+        assert sorted(d.spoken, key=lambda x: x["kind"]) == [
+            {"kind": "audio", "mime": "audio/webm", "bytes": 400, "durationMs": 2500},
+            {"kind": "text", "text": "請離開管制區"},
+        ]
+        # 下載失敗（網址過期、連不上）回 failed
+        await b.on_message("rms/robot/B2-001/cmd", cmd("s3", "speak", audio={"url": "http://127.0.0.1:1/x", "mime": "audio/webm"}))
+        await asyncio.wait_for(asyncio.gather(*list(b._side)), 5)
+        assert ("s3", "failed", "DOWNLOAD_FAILED") in b.acks()
+        await b.on_message("rms/robot/B2-001/cmd", cmd("s4", "speak", audio={"data": "AAAA"}))
+        assert ("s4", "rejected", "BAD_ARGS") in b.acks()
+    finally:
+        srv.shutdown()
+
+
+def test_download_size_limit():
+    import http.server
+    import threading
+
+    from common.driver import CommandError
+    from mock.driver import download
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"x" * 2048)
+
+        def log_message(self, *_a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(CommandError) as e:
+            download(f"http://127.0.0.1:{srv.server_port}/x", limit=1024)
+        assert e.value.code == "TOO_LARGE"
+        with pytest.raises(CommandError):
+            download("file:///etc/passwd")
+    finally:
+        srv.shutdown()
+
+
+async def test_mock_talk_reports_failure_when_stream_breaks(setup, monkeypatch, tmp_path):
+    """PR #15 審查第 3 點：拉流失敗或中斷（沒有 talk_stop）→ talk_failed 事件"""
+    _, d = setup
+    fake = tmp_path / "ffmpeg"
+    fake.write_text("#!/bin/sh\necho 'Server returned 401 Unauthorized (authorization failed)' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("FFMPEG_PATH", str(fake))
+    d.talk = {"seconds": 0, "bytes": 0, "peak_db": -90.0}
+    await d._talk_rx("rtsp://talk:tok@127.0.0.1:8554/talk/B2-001")
+    ev = d.events.get_nowait()
+    assert ev.type == "talk_failed" and "401" in ev.data["reason"]

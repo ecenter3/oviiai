@@ -49,6 +49,19 @@ export class MediaMtxClient {
     return this.call('DELETE', `config/paths/delete/${encodePath(name)}`);
   }
 
+  /**
+   * 踢掉這一路的推流者（系統管理員結束別人的對講、機器人端斷線時；PR #15 審查第 2、3 點）。
+   * 回傳是否踢到；沒有推流者或 MediaMTX 不支援時回 false。
+   */
+  async kickPublisher(name: string): Promise<boolean> {
+    const p = await this.call<{ source: { type: string; id: string } | null }>('GET', `paths/get/${encodePath(name)}`).catch(() => null);
+    const src = p?.source;
+    const kind: Record<string, string> = { webRTCSession: 'webrtcsessions', rtspSession: 'rtspsessions', rtspsSession: 'rtspssessions', rtmpConn: 'rtmpconns', srtConn: 'srtconns' };
+    if (!src || !kind[src.type]) return false;
+    await this.call('POST', `${kind[src.type]}/kick/${src.id}`).catch(() => undefined);
+    return true;
+  }
+
   async configuredPaths(): Promise<{ name: string; conf: MtxPathConf }[]> {
     const r = await this.call<{ items: ({ name: string } & MtxPathConf)[] }>('GET', 'config/paths/list?itemsPerPage=1000');
     return r.items.map(({ name, ...conf }) => ({ name, conf }));

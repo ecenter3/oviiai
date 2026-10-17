@@ -6,7 +6,6 @@ pause 讓導航停在原地（指令仍在執行），resume 從目前位置接�
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import math
 import os
@@ -16,12 +15,15 @@ import socket
 import struct
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.request import urlopen
 
 from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop, now_ms
 from common.driver import CommandError, RobotDriver, split_params
 from common.transform import Affine2D
 
 TICK_S = 0.1
+#: 按鍵說話音檔下載上限（後端收 5 MB；PR #15 審查第 1 點）
+SPEAK_MAX_BYTES = 10 * 1024 * 1024
 #: 對講音訊解碼成 16 kHz、單聲道、16-bit PCM，每 1 秒算一次音量
 TALK_RATE = 16000
 TALK_CHUNK = TALK_RATE * 2
@@ -37,6 +39,20 @@ def dbfs(pcm: bytes) -> float:
     samples = struct.unpack(f"<{n}h", pcm[: n * 2])
     rms = math.sqrt(sum(x * x for x in samples) / n)
     return max(-90.0, 20 * math.log10(rms / 32768)) if rms else -90.0
+
+
+def download(url: str, limit: int = SPEAK_MAX_BYTES, timeout: float = 10.0) -> bytes:
+    """下載按鍵說話的音檔（預簽名網址 5 分鐘有效）；超過上限或失敗 raise CommandError"""
+    if not url.startswith(("http://", "https://")):
+        raise CommandError("BAD_ARGS", "audio.url must be http(s)")
+    try:
+        with urlopen(url, timeout=timeout) as r:  # noqa: S310 — 只接受 http(s)，網址由後端簽發
+            data = r.read(limit + 1)
+    except OSError as e:
+        raise CommandError("DOWNLOAD_FAILED", f"audio download failed: {e}") from e
+    if len(data) > limit:
+        raise CommandError("TOO_LARGE", f"audio larger than {limit} bytes")
+    return data
 
 
 def talk_url(url: str, user: str, token: str) -> str:
@@ -148,8 +164,9 @@ class MockDriver(RobotDriver):
             raise CommandError("ESTOP", "robot is in emergency stop")
         if cmd.type == "talk_start" and not (cmd.args.get("url") and cmd.args.get("token")):
             raise CommandError("BAD_ARGS", "talk_start requires url and token")
-        if cmd.type == "speak" and not (cmd.args.get("text") or isinstance(cmd.args.get("audio"), dict)):
-            raise CommandError("BAD_ARGS", "speak requires text or audio")
+        audio = cmd.args.get("audio")
+        if cmd.type == "speak" and not (cmd.args.get("text") or (isinstance(audio, dict) and audio.get("url"))):
+            raise CommandError("BAD_ARGS", "speak requires text or audio.url")
 
     async def _goto(self, gx: float, gy: float, state: str) -> None:
         self.state = state
@@ -217,7 +234,7 @@ class MockDriver(RobotDriver):
             self.following = None
             return None
         if t == "speak":
-            return self._speak(cmd.args)
+            return await self._speak(cmd.args)
         if t == "talk_start":
             await self._talk_stop()
             self.talk = {"seconds": 0, "bytes": 0, "peak_db": -90.0}
@@ -264,10 +281,11 @@ class MockDriver(RobotDriver):
         self.max_speed = min(self.base_speed, limit) if limit else self.base_speed
         return split_params(params, {"walk.speed"})
 
-    def _speak(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _speak(self, args: dict[str, Any]) -> dict[str, Any]:
         if isinstance(args.get("audio"), dict):
             a = args["audio"]
-            data = base64.b64decode(str(a.get("data", "")), validate=True)
+            # 音檔在物件儲存，指令只帶預簽名網址：下載下來（真機轉接器下載後送到喇叭）
+            data = await asyncio.to_thread(download, str(a["url"]))
             item = {"kind": "audio", "mime": a.get("mime"), "bytes": len(data), "durationMs": a.get("durationMs")}
             log.info("%s 播放語音：%s、%d bytes、%.1f 秒（模擬器只記錄）", self.code, item["mime"], item["bytes"], (item["durationMs"] or 0) / 1000)
         else:
@@ -290,8 +308,10 @@ class MockDriver(RobotDriver):
             assert proc.stdout is not None
             await self.consume_talk(proc.stdout)
             err = (await proc.stderr.read()).decode(errors="replace").strip() if proc.stderr else ""
-            if err:
-                log.warning("%s 對講音訊中斷：%s", self.code, err.splitlines()[-1][:200])
+            reason = err.splitlines()[-1][:200] if err else "stream ended"
+            log.warning("%s 對講音訊中斷：%s", self.code, reason)
+            # 沒收到 talk_stop 就斷了（拉流失敗、網路中斷、憑證過期重連不上）：回報，控制室才知道機器人端已斷線
+            self.emit(RobotEvent(ts=now_ms(), type="talk_failed", data={"reason": reason}))
         finally:
             if proc.returncode is None:
                 proc.kill()

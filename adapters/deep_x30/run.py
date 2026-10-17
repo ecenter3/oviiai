@@ -3,6 +3,8 @@
 連線資料來自 robots.yaml。有轉接器金鑰（ADAPTER_KEY_DEEP_X30）時，座標校正改用後端
 「地圖管理 → 座標校正」存的結果（GET /adapter-config/deep_x30），每 10 秒同步；
 機器人不在移動時才套用（PR #11 審查第 2 點）。後端沒有校正的那台沿用 robots.yaml 的 transform。
+MQTT 憑證同樣由後端核發（EMQX 開認證時）：只涵蓋後端登記在 deep_x30 底下的機器人，
+robots.yaml 裡沒登記的那台主題會被 EMQX 擋下。
 """
 from __future__ import annotations
 
@@ -15,7 +17,14 @@ from pathlib import Path
 import yaml
 
 from common.bridge import Bridge
-from common.config_sync import SYNC_PERIOD_S, adapter_key, backend_url, fetch_config, load_dotenv
+from common.config_sync import (
+    SYNC_PERIOD_S,
+    adapter_key,
+    apply_mqtt_credentials,
+    backend_url,
+    fetch_adapter_config,
+    load_dotenv,
+)
 from common.transform import Affine2D
 
 from .driver import X30Driver
@@ -41,8 +50,9 @@ async def calib_loop(bridge: Bridge, key: str) -> None:
     first = True
     while True:
         try:
-            robots = await asyncio.to_thread(fetch_config, backend_url(), ADAPTER, key)
-            for r in robots:
+            cfg = await asyncio.to_thread(fetch_adapter_config, backend_url(), ADAPTER, key)
+            apply_mqtt_credentials(bridge, cfg)
+            for r in cfg["robots"]:
                 d = bridge.drivers.get(r["code"])
                 if d is None or not r.get("calib"):
                     continue

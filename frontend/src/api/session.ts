@@ -87,6 +87,8 @@ export interface LoginResult {
   accessToken: string;
   user: { id: string; username: string; displayName: string; role: { id: string; name: string } };
   perms: string[];
+  mustChangePassword?: boolean;
+  idleMinutes?: number;
 }
 
 export async function login(username: string, password: string): Promise<LoginResult> {

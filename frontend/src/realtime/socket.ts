@@ -7,6 +7,7 @@ import { type ChargingFloor, useCharging } from '../stores/charging';
 import { type ActiveRecording, useMedia } from '../stores/media';
 import { type CmdResult, type RobotLive, type Stats, useRealtime } from '../stores/realtime';
 import { type Task, useTasks } from '../stores/tasks';
+import { type TalkEnded, useTalkEvents } from '../stores/talk';
 import { type TeleopError, type TeleopRevoked, useTeleopEvents } from '../stores/teleop';
 import { useToast } from '../stores/toast';
 import { playAlarm } from './sound';
@@ -74,6 +75,7 @@ export function connectRealtime(): void {
     useToast.getState().show(t(key, m), 'warn');
   });
   socket.on('teleop.error', (m: Omit<TeleopError, 'at'>) => useTeleopEvents.getState().setError(m));
+  socket.on('talk.ended', (m: Omit<TalkEnded, 'at'>) => useTalkEvents.getState().setEnded(m));
 
   let last = useRealtime.getState().watch;
   unwatch = useRealtime.subscribe((s) => {

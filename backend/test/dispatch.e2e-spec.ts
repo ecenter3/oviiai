@@ -20,6 +20,7 @@ import { RobotRegistry } from '../src/fleet/robot-registry';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { SettingsService } from '../src/settings/settings.service';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -139,7 +140,7 @@ describe.skipIf(!ready)('派工（e2e）', () => {
     await db.updateTable('settings').set({ value: 'false' }).where('key', '=', 'dispatch.approval').execute();
     app.get(SettingsService).invalidate();
 
-    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-disp-${tag}` });
+    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-disp-${tag}`, ...testMqttAuth() });
     await adapter.subscribeAsync(Object.keys(bots).map((c) => `rms/robot/${c}/cmd`), { qos: 1 });
     adapter.on('message', (topic, payload) => {
       const b = bots[topic.split('/')[2]];

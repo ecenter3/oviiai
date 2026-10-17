@@ -6,11 +6,13 @@ import { Public } from '../auth/public.decorator';
 import { AppError } from '../common/errors';
 import { adapterAllowedCidrs, adapterKey, dataEncKey } from '../config';
 import { KYSELY, type Database } from '../db/database.module';
+import { adapterAcl, MQTT_TOKEN_TTL_SEC, mqttJwtSecret, signMqttToken } from '../mqtt/mqtt-auth';
 
 /**
  * 轉接器設定（機器人接入 §3：一個轉接器程序管理同品牌的多台，設定來自後端 GET /adapter-config/{name}，以轉接器金鑰驗證）。
  * 金鑰放在 .env 的 ADAPTER_KEY_<名稱大寫>，請求帶 X-Adapter-Key。回傳該轉接器底下啟用中的機器人、
- * 連線資料（含解密後的密碼，只給持有金鑰的轉接器）、同樓層同品牌的充電樁、座標校正矩陣。
+ * 連線資料（含解密後的密碼，只給持有金鑰的轉接器）、同樓層同品牌的充電樁、座標校正矩陣，
+ * 以及 MQTT 帳號與憑證（EMQX 開認證時；只能發布、訂閱這些機器人的主題）。
  * 不走使用者登入（轉接器沒有帳號），所以標 @Public，自己檢查來源網段與金鑰。
  *
  * 來源網段（ADAPTER_ALLOWED_CIDRS）在後端也檢查一次（PR #11 審查第 1 點）：就算 Nginx 設錯、
@@ -26,7 +28,8 @@ export class AdapterConfigController {
   async get(@Param('name') name: string, @Headers('x-adapter-key') key: string | undefined, @Req() req: Request) {
     const allowed = adapterAllowedCidrs();
     if (allowed && !allowed.has(req.ip)) throw new AppError('FORBIDDEN', '來源網段不允許取得轉接器設定');
-    if (!/^[a-z0-9_-]{1,32}$/.test(name)) throw new AppError('NOT_FOUND', '找不到轉接器');
+    // backend 是後端自己的 MQTT 帳號，不能當轉接器名稱
+    if (!/^[a-z0-9_-]{1,32}$/.test(name) || name === 'backend') throw new AppError('NOT_FOUND', '找不到轉接器');
     const expected = adapterKey(name);
     if (!expected || !key || !safeEqual(key, expected)) throw new AppError('UNAUTHENTICATED', '轉接器金鑰錯誤');
 
@@ -39,9 +42,19 @@ export class AdapterConfigController {
       .where('r.enabled', '=', true)
       .orderBy('r.code')
       .execute();
+    // MQTT 帳號：轉接器名稱；憑證只涵蓋這個轉接器底下啟用中的機器人（安全收尾 e）
+    const secret = mqttJwtSecret();
+    const mqtt = secret
+      ? {
+          username: name,
+          password: signMqttToken(name, adapterAcl(name, robots.map((r) => r.code)), secret),
+          expiresAt: new Date(Date.now() + MQTT_TOKEN_TTL_SEC * 1000).toISOString(),
+        }
+      : null;
     const chargers = await this.db.selectFrom('chargers').select(['id', 'code', 'floor_id', 'brand', 'x', 'y', 'robot_dock']).where('enabled', '=', true).execute();
     return {
       adapter: name,
+      mqtt,
       robots: robots.map((r) => ({
         code: r.code,
         brand: r.brand,

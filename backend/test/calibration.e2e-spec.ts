@@ -16,6 +16,7 @@ import { createDatabase, type Database } from '../src/db/database.module';
 import { FleetService } from '../src/fleet/fleet.service';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -95,7 +96,7 @@ describe.skipIf(!ready)('座標校正（e2e）', () => {
     configureApp(app);
     await app.listen(0);
     await until(() => app.get(MqttService).connected);
-    pub = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-cal-${tag}` });
+    pub = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-cal-${tag}`, ...testMqttAuth() });
     maps = await makeUser(['maps']);
     viewer = await makeUser(['monitor']);
   });

@@ -32,7 +32,9 @@ export class OpLogInterceptor implements NestInterceptor {
     );
   }
 
-  private async record(meta: OpLogMeta, req: Request & { user?: Principal }, result: unknown, err: unknown) {
+  private async record(meta: OpLogMeta, req: Request & { user?: Principal; oplogged?: boolean }, result: unknown, err: unknown) {
+    // 失敗已記在這筆：403 不再另記 auth.forbidden
+    if (err !== undefined) req.oplogged = true;
     try {
       const detail: Record<string, unknown> = { ok: err === undefined };
       if (err !== undefined) detail.error = errorCode(err);

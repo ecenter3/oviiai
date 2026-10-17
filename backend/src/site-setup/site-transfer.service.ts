@@ -420,7 +420,7 @@ export class SiteTransferService {
         ),
       },
     ];
-    // 角色：系統角色不會被設定包改掉；新增的權限不能超出匯入者自己的權限（同角色管理 API 的 assertWithinOwnPerms）
+    // 角色：系統角色不會被設定包改掉；權限不能超出匯入者自己的權限（同角色管理 API）
     const curRoles = new Map(cur.roles.map((r) => [r.name, r]));
     const systemRoles = new Set((await db.selectFrom('roles').select('name').where('is_system', '=', true).execute()).map((r) => r.name));
     const blocked: BlockedRole[] = [];
@@ -430,7 +430,9 @@ export class SiteTransferService {
       if (systemRoles.has(c.key)) return { key: c.key, action: 'keep', note: '系統角色不會被設定包改掉' };
       const want = validPerms(pkg.roles.find((r) => r.name === c.key)!.perms);
       const had = new Set(curRoles.get(c.key)?.perms ?? []);
-      const missing = want.filter((p) => !had.has(p) && !opts.actor.perms.includes(p));
+      // 新增的權限、以及（修改既有角色時）角色原本的權限，都不能超出匯入者（不可修改權限高於自己的角色）
+      const touched = c.action === 'update' ? [...new Set([...want, ...had])] : want;
+      const missing = touched.filter((p) => !opts.actor.perms.includes(p));
       if (missing.length) blocked.push({ role: c.key, missing });
       return c;
     });

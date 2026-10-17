@@ -33,7 +33,13 @@ SDK 到手時要確認：上樁對接成功後回報哪個欄位表示充電中�
 - 機器人能接收即時音訊串流 → 能力勾 `talk_live`（方案 A）：實作 `talk_start {url, user, token}` 與 `talk_stop`。
   以 `rtsp://<user>:<token>@<url 的主機>/talk/<代碼>` 拉 Opus 音訊（主機名稱先解析成 IP，靜態編譯的 ffmpeg 自己解析會當掉），
   解碼後送到機器人喇叭；推流的人掛斷時串流會結束，轉接器不要自動重連。參考 `mock/driver.py` 的 `_talk_rx`。
-- 機器人只能播放音檔 → 能力勾 `talk`（方案 B）：實作 `speak {audio: {mime, data(base64), durationMs}}`（也可能是 `{text}`），
+- 拉流失敗或中斷（沒收到 `talk_stop` 就斷了）要發 `talk_failed {reason}` 事件，控制室才知道機器人端已斷線（PR #15 審查第 3 點）。
+- 機器人只能播放音檔 → 能力勾 `talk`（方案 B）：實作 `speak {audio: {url, mime, bytes, durationMs}}`（也可能是 `{text}`），
+  `url` 是 5 分鐘有效的預簽名網址，下載後播放（參考 `mock/driver.py` 的 `download`；上限 10 MB），
   瀏覽器錄的是 `audio/webm`（Opus）居多，SDK 不吃 webm 時用 ffmpeg 轉成機型要的格式。
 - 兩者都支援時只勾 `talk_live`（畫面優先用即時對講），或兩個都勾。
 
+
+## MQTT 帳號（所有轉接器；安全收尾 e）
+EMQX 不接受匿名連線。轉接器以 `ADAPTER_KEY_<名稱>` 呼叫 `GET /adapter-config/<名稱>`，回應的 `mqtt`（帳號＝轉接器名稱、24 小時 JWT）只能發布自己機器人的 `telemetry`／`event`／`ack`／`online` 與 `rms/adapter/<名稱>/status`，只能訂閱自己機器人的 `cmd`／`teleop`。
+照 `mock/run.py`、`deep_x30/run.py` 的做法：啟動與每 10 秒同步時呼叫 `common.config_sync.apply_mqtt_credentials(bridge, cfg)`，機器人清單變了 `Bridge` 會用新憑證重連。詳見 `docs/deploy.md` 第 10 節。

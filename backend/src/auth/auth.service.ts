@@ -22,6 +22,7 @@ export interface LoginResult {
   refreshExpiresAt: Date;
   user: { id: string; username: string; displayName: string; role: { id: string; name: string } };
   perms: string[];
+  mustChangePassword: boolean;
 }
 
 const BAD_CREDENTIALS = '帳號或密碼錯誤';
@@ -106,6 +107,9 @@ export class AuthService {
     if (!(await verifyPassword(user.passwordHash, oldPassword))) {
       throw new AppError('VALIDATION_FAILED', '舊密碼錯誤', { fields: { oldPassword: '舊密碼錯誤' } });
     }
+    if (newPassword === oldPassword) {
+      throw new AppError('VALIDATION_FAILED', '新密碼不能與目前密碼相同', { fields: { newPassword: '新密碼不能與目前密碼相同' } });
+    }
     await this.repo.updatePassword(user.id, await hashPassword(newPassword));
     // 其他裝置的登入失效，目前這個保留
     await this.repo.revokeOtherRefreshTokens(user.id, currentRefreshToken ? hashRefreshToken(currentRefreshToken) : null);
@@ -126,5 +130,6 @@ function view(u: AuthUser) {
   return {
     user: { id: u.id, username: u.username, displayName: u.displayName, role: { id: u.roleId, name: u.roleName } },
     perms: u.perms,
+    mustChangePassword: u.mustChangePassword,
   };
 }

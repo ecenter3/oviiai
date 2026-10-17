@@ -59,7 +59,7 @@ export class RolesController {
   @Delete('roles/:id')
   @HttpCode(204)
   @OpLog('role.delete', (req) => roleTarget(req.params.id))
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
-    await this.roles.remove(id);
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: Principal) {
+    await this.roles.remove(id, actor);
   }
 }

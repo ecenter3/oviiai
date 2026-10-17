@@ -1,4 +1,4 @@
-import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
@@ -29,6 +29,16 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
     forcePathStyle: true,
     credentials: { accessKeyId: process.env.S3_ACCESS_KEY || '', secretAccessKey: process.env.S3_SECRET_KEY || '' },
   });
+  /**
+   * 轉接器下載用的預簽名網址（按鍵說話的音檔；PR #15 審查第 1 點）：簽在轉接器主機連得到的位址。
+   * S3_ADAPTER_ENDPOINT 沒設就用 S3_ENDPOINT（轉接器與後端同一台）。
+   */
+  private readonly adapterS3 = new S3Client({
+    endpoint: process.env.S3_ADAPTER_ENDPOINT || process.env.S3_ENDPOINT || 'http://localhost:8333',
+    region: process.env.S3_REGION || 'us-east-1',
+    forcePathStyle: true,
+    credentials: { accessKeyId: process.env.S3_ACCESS_KEY || '', secretAccessKey: process.env.S3_SECRET_KEY || '' },
+  });
   private ready: Promise<void> | null = null;
 
   onModuleInit() {
@@ -41,16 +51,17 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.s3.destroy();
     this.publicS3.destroy();
+    this.adapterS3.destroy();
   }
 
-  /** 預簽名網址（預設 5 分鐘）；filename 給了就以附件下載 */
-  async presign(key: string, opts: { filename?: string; ttlSec?: number } = {}): Promise<string> {
+  /** 預簽名網址（預設 5 分鐘）；filename 給了就以附件下載；for: 'adapter' 簽給轉接器（S3_ADAPTER_ENDPOINT） */
+  async presign(key: string, opts: { filename?: string; ttlSec?: number; for?: 'browser' | 'adapter' } = {}): Promise<string> {
     const cmd = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ...(opts.filename && { ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(opts.filename)}` }),
     });
-    return getSignedUrl(this.publicS3, cmd, { expiresIn: opts.ttlSec ?? 300 });
+    return getSignedUrl(opts.for === 'adapter' ? this.adapterS3 : this.publicS3, cmd, { expiresIn: opts.ttlSec ?? 300 });
   }
 
   async put(key: string, body: Buffer | string, contentType: string): Promise<void> {
@@ -84,6 +95,18 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
     const chunks: Buffer[] = [];
     for await (const c of body) chunks.push(Buffer.from(c as Uint8Array));
     return Buffer.concat(chunks);
+  }
+
+  /** 列出前綴下的物件（保存期限清理用） */
+  async list(prefix: string): Promise<{ key: string; lastModified: Date }[]> {
+    const out: { key: string; lastModified: Date }[] = [];
+    let token: string | undefined;
+    do {
+      const r = await this.s3.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token }));
+      for (const o of r.Contents ?? []) if (o.Key) out.push({ key: o.Key, lastModified: o.LastModified ?? new Date(0) });
+      token = r.IsTruncated ? r.NextContinuationToken : undefined;
+    } while (token);
+    return out;
   }
 
   async remove(key: string): Promise<void> {

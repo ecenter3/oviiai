@@ -58,6 +58,11 @@ jobs:
       emqx:
         image: emqx/emqx:5.8.3
         ports: ["1883:1883"]
+        # 與 infra/docker-compose.dev.yml 相同的認證與權限設定（金鑰 = 下方 EMQX_JWT_SECRET）
+        env:
+          EMQX_AUTHENTICATION: '[{mechanism = jwt, from = password, use_jwks = false, algorithm = "hmac-based", secret = "ci-only-emqx-jwt-secret-ci-only-0001", secret_base64_encoded = false, acl_claim_name = acl, disconnect_after_expire = false, verify_claims = {username = "${username}"}}]'
+          EMQX_AUTHORIZATION__NO_MATCH: deny
+          EMQX_AUTHORIZATION__SOURCES: '[]'
         options: >-
           --health-cmd "emqx ctl status"
           --health-interval 5s
@@ -70,6 +75,7 @@ jobs:
       ADAPTER_ALLOWED_CIDRS: 127.0.0.1/32,::1/128
       REDIS_URL: redis://localhost:6379
       MQTT_URL: mqtt://localhost:1883
+      EMQX_JWT_SECRET: ci-only-emqx-jwt-secret-ci-only-0001
       COOKIE_SECURE: 'false'
     steps:
       - uses: actions/checkout@v4

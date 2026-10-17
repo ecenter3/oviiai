@@ -28,6 +28,10 @@ MOVE_COMMANDS = frozenset({"navigate", "patrol", "charge", "stop", "estop"})
 RECONNECT_DELAY_S = 3.0
 
 
+class _ReconnectRequested(Exception):
+    """權限範圍（機器人清單）變了：用新的 MQTT 憑證重新連線"""
+
+
 def clamp_teleop(t: Teleop, limit: float | None) -> Teleop:
     """平移速度不超過參數「導航速度」（方向不變，等比例縮小）；角速度不限"""
     if limit is None:
@@ -52,6 +56,10 @@ class Bridge:
         host, _, port = mqtt_url.removeprefix("mqtt://").partition(":")
         self.host, self.port = host, int(port or 1883)
         self.username, self.password = username, password
+        # 目前憑證涵蓋的機器人（EMQX ACL 只允許這些主題，安全收尾 e）；連線當時的範圍
+        self._scope: frozenset[str] | None = None
+        self._session_scope: frozenset[str] | None = None
+        self._reconnect = asyncio.Event()
         self._client: aiomqtt.Client | None = None
         self._teleop_deadline: dict[str, float] = {}
         self._running: dict[str, asyncio.Task] = {}
@@ -70,9 +78,22 @@ class Bridge:
                 log.warning("mqtt disconnected: %s; retry in %ss", e, RECONNECT_DELAY_S)
                 await asyncio.sleep(RECONNECT_DELAY_S)
 
+    def set_credentials(self, username: str, password: str, scope: frozenset[str]) -> None:
+        """後端核發的 MQTT 憑證（GET /adapter-config 的 mqtt）。下次連線就用新的；
+        權限涵蓋的機器人和目前連線時不同（新增、移除機器人）就立即重連，新機器人的主題才訂閱得到。"""
+        self.username, self.password, self._scope = username, password, scope
+        if self._client is not None and scope != self._session_scope:
+            self._reconnect.set()
+
+    async def _wait_reconnect(self) -> None:
+        await self._reconnect.wait()
+        raise _ReconnectRequested
+
     async def _session(self) -> None:
         will = aiomqtt.Will(topics.adapter_status(self.name),
                             _json(AdapterStatus(name=self.name, alive=False)), qos=1, retain=True)
+        self._reconnect.clear()
+        self._session_scope = self._scope
         async with aiomqtt.Client(self.host, self.port, identifier=f"adapter-{self.name}",
                                   username=self.username, password=self.password, will=will) as client:
             self._client = client
@@ -86,8 +107,17 @@ class Bridge:
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(self._heartbeat_loop())
                     tg.create_task(self._teleop_watchdog())
+                    tg.create_task(self._wait_reconnect())
                     async for msg in client.messages:
                         await self.on_message(str(msg.topic), msg.payload)
+            except BaseExceptionGroup as eg:
+                _, rest = eg.split(_ReconnectRequested)
+                if rest is not None:
+                    mqtt_err, other = rest.split(aiomqtt.MqttError)
+                    if other is not None:
+                        raise other
+                    raise mqtt_err.exceptions[0]  # 連線中斷：交給 run() 重連
+                log.info("robot list changed; reconnecting with new mqtt credentials")
             finally:
                 for code in list(self._loops):
                     self._stop_loops(code)

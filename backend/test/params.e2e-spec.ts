@@ -14,6 +14,7 @@ import { loadEnv } from '../src/config';
 import { createDatabase, type Database } from '../src/db/database.module';
 import { FleetService } from '../src/fleet/fleet.service';
 import { MqttService } from '../src/mqtt/mqtt.service';
+import { testMqttAuth } from './mqtt-test-auth';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -95,7 +96,7 @@ describe.skipIf(!ready)('機器人參數（e2e，T-27）', () => {
     viewer = await makeUser(['params']);
     editor = await makeUser(['params', 'op.config']);
 
-    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-params-${tag}` });
+    adapter = await mqtt.connectAsync(process.env.MQTT_URL!, { clientId: `e2e-params-${tag}`, ...testMqttAuth() });
     await adapter.subscribeAsync(robots.map((r) => `rms/robot/${r.code}/cmd`), { qos: 1 });
     adapter.on('message', (topic, payload) => {
       const m = JSON.parse(payload.toString());
