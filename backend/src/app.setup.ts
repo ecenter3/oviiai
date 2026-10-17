@@ -4,7 +4,8 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
 
 /** main.ts 與測試共用的應用程式設定 */
 export function configureApp(app: NestExpressApplication): void {
-  app.setGlobalPrefix('api/v1', { exclude: ['internal/(.*)'] });
+  // path-to-regexp v8（Express 5、Nest 11 起）：萬用字元要具名，{} 表示可省略
+  app.setGlobalPrefix('api/v1', { exclude: ['internal/{*path}'] });
   app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback');
   app.use(cookieParser());
   app.useGlobalFilters(new HttpExceptionFilter());

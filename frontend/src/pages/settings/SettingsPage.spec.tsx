@@ -56,7 +56,9 @@ describe('派工與充電規則頁（T-20）', () => {
 
   it('顯示目前設定：充電門檻、各品牌充電方式、樓層配置', async () => {
     setup(['settings', 'op.config']);
-    expect(((await screen.findByLabelText('回充門檻')) as HTMLInputElement).value).toBe('25');
+    // 表單值在設定載入後由 effect 帶入：等值出現（第一次渲染可能還是 0）
+    const ret = (await screen.findByLabelText('回充門檻')) as HTMLInputElement;
+    await waitFor(() => expect(ret.value).toBe('25'));
     expect((screen.getByLabelText('萬為') as HTMLSelectElement).value).toBe('auto');
     expect((screen.getByLabelText('宇樹') as HTMLSelectElement).value).toBe('manual');
     expect((screen.getByLabelText('1F 辦公室 配置台數') as HTMLInputElement).value).toBe('10');

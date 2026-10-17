@@ -35,8 +35,13 @@ else
 fi
 ok "Python: $($PY --version)"
 
-# 3. Node 22
-if ! command -v node >/dev/null || [[ "$(node -v | cut -d. -f1)" != "v22" ]]; then
+# 3. Node 22（22.22.3 以上：NestJS 12 的 CLI 需要；vitest 5 需要 22.12 以上）
+node_ok() {
+  command -v node >/dev/null || return 1
+  local v; v=$(node -v | tr -d v)
+  [[ "${v%%.*}" == "22" ]] && printf '%s\n22.22.3\n' "$v" | sort -V -C -r
+}
+if ! node_ok; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
   sudo apt-get install -y nodejs
 fi
