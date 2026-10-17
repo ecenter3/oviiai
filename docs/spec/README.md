@@ -25,6 +25,8 @@
 | `db/migrations/001_init.sql` 一次建 24 張表 | node-pg-migrate 時間戳檔名；已有 `1760500000000_extensions.sql`，之後依模組各自新增 | 每個模組一支 migration 較好審查 |
 | `RobotDriver` 每個指令一個方法（navigate、stop…） | `RobotDriver.execute(cmd)` 統一入口＋`capabilities` | 由 `common/bridge.py` 統一處理 ack 流程 |
 | pnpm workspaces | 各資料夾獨立 npm | 先求簡單，需要時再改 |
+| 操作權限 6 個（後端邏輯 §6） | 7 個：多 `op.media`（刪除抓拍與錄影），預設只給系統管理員 | PR #12 審查：只有瀏覽權限不應能刪證據 |
+| 機器人參數四個子系統只列在系統規格書 | 欄位、選項代碼、範圍定義在 `packages/contracts/src/params.ts`，前後端共用 | 避免兩邊各寫一份 |
 
 ## 機器人 SDK 實況（2026-10-15 讀過原始碼）
 

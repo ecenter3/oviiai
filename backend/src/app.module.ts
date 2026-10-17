@@ -20,6 +20,7 @@ import { UsersModule } from './users/users.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { MediaModule } from './media/media.module';
 import { NavModule } from './nav/nav.module';
+import { ParamsModule } from './params/params.module';
 import { SiteModule } from './site/site.module';
 import { StorageModule } from './storage/storage.module';
 
@@ -40,6 +41,7 @@ import { StorageModule } from './storage/storage.module';
     MapsModule,
     FleetModule,
     CommandsModule,
+    ParamsModule,
     DispatchModule,
     ChargingModule,
     AlarmsModule,

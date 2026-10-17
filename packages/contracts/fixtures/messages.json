@@ -39,6 +39,9 @@
       "valid": [
         {"cmdId": "c_8f2a", "ts": 1792053940785, "type": "navigate", "args": {"x": 12.4, "y": 30.1, "yaw": 1.57}},
         {"cmdId": "c_8f2b", "ts": 1792053940785, "type": "estop"},
+        {"cmdId": "c_8f2e", "ts": 1792053940785, "type": "set_params", "args": {"params": {"walk": {"speed": 0.6, "collide": "safe"}, "video": {}, "talk": {}, "ext": {}}}},
+        {"cmdId": "c_8f2f", "ts": 1792053940785, "type": "ptz", "args": {"pan": -0.25, "tilt": 0.1, "zoom": 0}},
+        {"cmdId": "c_8f30", "ts": 1792053940785, "type": "light", "args": {"on": true, "mode": "fill"}},
         {"cmdId": "c_8f2c", "ts": 1792053940785, "type": "patrol", "args": {"points": [{"x": 1, "y": 2}], "loops": 2}, "timeoutSec": 600}
       ],
       "invalid": [

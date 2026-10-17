@@ -19,7 +19,7 @@ TICK_S = 0.1
 
 class MockDriver(RobotDriver):
     capabilities = frozenset({"navigate", "patrol", "stop", "pause", "resume", "charge", "estop",
-                              "estop_release", "snapshot"})
+                              "estop_release", "snapshot", "ptz", "light", "follow", "follow_stop"})
 
     def __init__(self, code: str, floor: str, x: float = 0.0, y: float = 0.0, battery: float = 80.0,
                  speed: float = 1.0, dock: dict[str, float] | None = None, fail_rate: float = 0.0,
@@ -47,6 +47,10 @@ class MockDriver(RobotDriver):
         # 清除＝暫停：導航迴圈停在原地等待 resume
         self._go = asyncio.Event()
         self._go.set()
+        #: 雲台位置（正規化 -1..1，絕對位置）、燈光（mode → 開關）、跟隨對象；只記錄，供測試與日誌
+        self.ptz = (0.0, 0.0, 0.0)
+        self.lights: dict[str, bool] = {}
+        self.following: str | None = None
         if teleop:
             self.capabilities = self.capabilities | {"teleop"}
 
@@ -151,6 +155,18 @@ class MockDriver(RobotDriver):
             return None
         if t == "snapshot":
             return {"objectKey": f"mock/{self.code}/{cmd.cmdId}.jpg"}
+        if t == "ptz":
+            self.ptz = (float(cmd.args["pan"]), float(cmd.args["tilt"]), float(cmd.args["zoom"]))
+            return None
+        if t == "light":
+            self.lights[str(cmd.args.get("mode") or "default")] = bool(cmd.args["on"])
+            return None
+        if t == "follow":
+            self.following = str(cmd.args["personId"])
+            return None
+        if t == "follow_stop":
+            self.following = None
+            return None
 
         self.task_ref = cmd.cmdId
         self._go.set()  # 新的移動指令取代暫停中的舊導航
