@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { PermCode } from '@oviiai/contracts';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../stores/auth';
@@ -29,7 +30,7 @@ const item = (over: Partial<MediaItem>): MediaItem => ({
 });
 
 let calls: { url: string; method: string; body?: unknown }[];
-function setup(ui: ReactNode, items: MediaItem[]) {
+function setup(ui: ReactNode, items: MediaItem[], perms: PermCode[] = ['captures', 'records', 'op.media']) {
   calls = [];
   vi.stubGlobal(
     'fetch',
@@ -43,7 +44,7 @@ function setup(ui: ReactNode, items: MediaItem[]) {
       return json({});
     }),
   );
-  useAuth.setState({ status: 'authed', perms: ['captures', 'records'], user: null });
+  useAuth.setState({ status: 'authed', perms, user: null });
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 }
 
@@ -66,10 +67,17 @@ describe('抓拍圖片、錄像回放（T-28）', () => {
   });
 
   it('縮圖牆：方式標籤、全選刪除（先確認）、點縮圖看大圖並下載；新抓拍即時重新查詢', async () => {
-    setup(<CapturesPage />, [item({}), item({ id: 'm2', robotCode: null, robotId: null, cameraId: 'c1', cameraCode: 'CAM-1F-01', cameraName: '1F 大門', source: 'alarm' })]);
+    setup(<CapturesPage />, [
+      item({}),
+      item({ id: 'm2', robotCode: null, robotId: null, cameraId: 'c1', cameraCode: 'CAM-1F-01', cameraName: '1F 大門', source: 'alarm' }),
+      item({ id: 'm3', source: 'alarm', alarmId: 'a1' }),
+    ]);
     const cards = await screen.findAllByRole('button', { name: /放大檢視/ });
-    expect(cards).toHaveLength(2);
-    expect(screen.getByText('告警抓拍', { selector: '.badge2' })).toBeTruthy();
+    expect(cards).toHaveLength(3);
+    // 告警證據不能選（全選也不含它）
+    expect(screen.getAllByRole('button', { name: '選取' })).toHaveLength(2);
+    expect(screen.getByLabelText('告警證據，保存期滿自動清除，不能手動刪除')).toBeTruthy();
+    expect(screen.getAllByText('告警抓拍', { selector: '.badge2' })).toHaveLength(2);
     expect(screen.getByText('CAM-1F-01 1F 大門', { selector: 'b' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '全選' }));
@@ -87,6 +95,14 @@ describe('抓拍圖片、錄像回放（T-28）', () => {
     const before = calls.filter((c) => c.url.includes('/media?')).length;
     act(() => useMedia.getState().bump());
     await waitFor(() => expect(calls.filter((c) => c.url.includes('/media?')).length).toBe(before + 1));
+  });
+
+  it('沒有 op.media：不顯示全選、刪除與勾選框', async () => {
+    setup(<CapturesPage />, [item({})], ['captures']);
+    await screen.findAllByRole('button', { name: /放大檢視/ });
+    expect(screen.queryByRole('button', { name: '全選' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /刪除/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: '選取' })).toBeNull();
   });
 
   it('錄像表格：時長、觸發方式；播放開影片視窗', async () => {

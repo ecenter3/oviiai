@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { RequireLogin, RequirePage } from './components/RequirePage';
 import { LoginPage } from './pages/LoginPage';
 import { MapsPage } from './pages/admin/MapsPage';
+import { ParamsPage } from './pages/admin/ParamsPage';
 import { RobotAdminPage } from './pages/admin/RobotAdminPage';
 import { CapturesPage, RecordsPage } from './pages/media/MediaPages';
 import { NavPage } from './pages/nav/NavPage';
@@ -11,6 +12,7 @@ import { AlarmSettingsPage } from './pages/alarms/AlarmSettingsPage';
 import { AlarmsPage } from './pages/alarms/AlarmsPage';
 import { DispatchPage } from './pages/dispatch/DispatchPage';
 import { MonitorPage } from './pages/monitor/MonitorPage';
+import { RemotePage } from './pages/remote/RemotePage';
 import { RobotsPage } from './pages/robots/RobotsPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './pages/StatusPages';
@@ -31,6 +33,9 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/nav': NavPage,
   '/captures': CapturesPage,
   '/records': RecordsPage,
+  '/params': ParamsPage,
+  '/remote': RemotePage,
+  '/remote/:id': RemotePage,
 };
 
 export function App() {
