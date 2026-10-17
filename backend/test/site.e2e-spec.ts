@@ -150,9 +150,11 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
         await ad.subscribeAsync(`rms/robot/${CODE}/cmd`, { qos: 1 });
         await expect(ad.subscribeAsync(`rms/robot/${OTHER}/cmd`)).rejects.toThrow(/Subscribe error/);
         await expect(ad.subscribeAsync('rms/#')).rejects.toThrow(/Subscribe error/);
+        // 只看這個測試送的內容（訂閱時可能收到別的轉接器留下的 retained 狀態）
+        const mine = new Set(['own', 'spoof', 'fake-cmd', 'other-adapter']);
         const seen: string[] = [];
-        await pub.subscribeAsync([`rms/robot/${CODE}/event`, `rms/robot/${OTHER}/#`, `rms/robot/${CODE}/cmd`, `rms/adapter/+/status`]);
-        pub.on('message', (t, m) => seen.push(`${t} ${m.toString()}`));
+        pub.on('message', (t, m) => mine.has(m.toString()) && seen.push(`${t} ${m.toString()}`));
+        await pub.subscribeAsync([`rms/robot/${CODE}/event`, `rms/robot/${OTHER}/#`, `rms/robot/${CODE}/cmd`, `rms/adapter/${ADAPTER}-x/status`]);
         await ad.publishAsync(`rms/robot/${CODE}/event`, 'own', { qos: 1 });
         await ad.publishAsync(`rms/robot/${OTHER}/telemetry`, 'spoof', { qos: 1 });
         await ad.publishAsync(`rms/robot/${CODE}/cmd`, 'fake-cmd', { qos: 1 });
