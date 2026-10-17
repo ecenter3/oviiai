@@ -13,6 +13,7 @@ export const zhTW = {
   'login.error.network': '無法連線到伺服器',
   'login.error.required': '請輸入帳號與密碼',
   'login.expired': '登入已過期，請重新登入',
+  'login.idle': '閒置超過 {n} 分鐘，已自動登出',
 
   'top.stat.online': '在線機器人',
   'top.stat.working': '執行中',
@@ -324,6 +325,9 @@ export const zhTW = {
   'settings.approval': '審批模式（上線第一個月）',
   'settings.approval.body': '新派工先進入「待審核」，核准後才分派。P1 緊急任務不經審核，直接派出。關閉後改為自動派工。',
   'settings.approvalUntil': '審批期限（台北日期，過後自動關閉）',
+  'settings.idleLogout': '閒置自動登出',
+  'settings.idleLogout.body': '滑鼠、鍵盤、觸控都沒有動作超過這段時間就自動登出，離開座位時別人無法冒用。對所有帳號、所有電腦生效；選「不自動登出」則都不會登出。',
+  'settings.idleLogout.off': '不自動登出',
   'settings.teleopIdle': '遙控閒置自動歸還',
   'settings.teleopIdle.body': '遙控者連續這麼久沒有操作搖桿（只有續期的零速度），系統自動收回遙控鎖並讓任務繼續。遙控頁會在閒置 3 分鐘時先提示。',
   'settings.minutes': '{n} 分鐘',

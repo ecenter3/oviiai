@@ -6,7 +6,7 @@ import { homePath } from '../routes';
 import { useAuth } from '../stores/auth';
 
 export function LoginPage() {
-  const { status, login, expired } = useAuth();
+  const { status, login, expired, idleOut } = useAuth();
   const navigate = useNavigate();
   const from = (useLocation().state as { from?: string } | null)?.from;
   const [username, setUsername] = useState('');
@@ -36,6 +36,7 @@ export function LoginPage() {
       <form onSubmit={submit} noValidate>
         <h1>{t('app.name')}</h1>
         {expired && !error && <p className="notice">{t('login.expired')}</p>}
+        {idleOut !== null && !expired && !error && <p className="notice">{t('login.idle', { n: idleOut })}</p>}
         <label>
           {t('login.username')}
           <input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />

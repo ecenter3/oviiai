@@ -125,6 +125,24 @@ describe.skipIf(!hasDb)('權限與操作日誌（e2e）', () => {
     expect(r.body.error.code).toBe('UNAUTHENTICATED');
   });
 
+  it('閒置自動登出分鐘數：規則頁可設定（0 或 5～480），所有登入者由 /me 與登入取得', async () => {
+    const put = (v: unknown) => http().put('/api/v1/settings').set('Authorization', `Bearer ${admin.token}`).send({ values: { 'auth.idleMinutes': v } });
+    try {
+      await put(3).expect(400);
+      await put(481).expect(400);
+      await put(0).expect(200);
+      expect((await as(guard.token).get('/api/v1/me').expect(200)).body.idleMinutes).toBe(0);
+      await put(15).expect(200);
+      expect((await as(guard.token).get('/api/v1/me').expect(200)).body.idleMinutes).toBe(15);
+      const r = await http().post('/api/v1/auth/login').send({ username: `${tag}-guard`, password: PW }).expect(200);
+      expect(r.body.idleMinutes).toBe(15);
+      // 沒有 settings 權限的人讀不到規則頁，但仍拿得到閒置分鐘數
+      await as(guard.token).get('/api/v1/settings').expect(403);
+    } finally {
+      await put(30).expect(200);
+    }
+  });
+
   it('GET /permissions 回傳樹狀權限碼', async () => {
     const r = await as(admin.token).get('/api/v1/permissions').expect(200);
     expect(r.body.flatMap((g: { children: { code: string }[] }) => g.children.map((c) => c.code))).toEqual(ALL_PERMS);

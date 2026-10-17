@@ -9,6 +9,7 @@ import { type Conn, useRealtime } from '../stores/realtime';
 import { AlarmPopup } from './AlarmPopup';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { Toaster } from './Toaster';
+import { useIdleLogout } from './useIdleLogout';
 import { useSetupAutoOpen } from './useSetupAutoOpen';
 
 const CONN_TEXT: Record<Conn, MessageKey> = {
@@ -41,6 +42,7 @@ export function Layout() {
   const [open, setOpen] = useState<Set<MessageKey>>(() => new Set(current ? [current] : [menu[0]?.group]));
 
   useSetupAutoOpen();
+  useIdleLogout();
 
   useEffect(() => {
     connectRealtime();

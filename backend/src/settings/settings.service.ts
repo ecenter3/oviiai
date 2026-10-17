@@ -28,6 +28,12 @@ export class SettingsService {
     return this.cache.get(key);
   }
 
+  /** 閒置自動登出分鐘數（0＝不登出）；所有登入者都要知道，由 /me 與登入回傳 */
+  async idleMinutes(): Promise<number> {
+    const v = Number(await this.get('auth.idleMinutes') ?? 30);
+    return Number.isInteger(v) && v >= 0 ? v : 30;
+  }
+
   invalidate(): void {
     this.loadedAt = 0;
   }
