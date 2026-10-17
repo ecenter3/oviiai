@@ -4,12 +4,14 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { adapterAllowedCidrs, authConfig, dataEncKey, loadEnv } from './config';
+import { mediaConfig } from './media/media-config';
 
 async function bootstrap() {
   loadEnv();
   authConfig(); // 設定有誤（如正式環境 JWT_SECRET 不安全）在建立應用程式前就中止
   dataEncKey(); // 正式環境沒有資料加密金鑰也中止
   adapterAllowedCidrs(); // 網段格式錯誤在啟動時就中止
+  mediaConfig(); // 正式環境沒設 MEDIA_INTERNAL_PASSWORD 就中止
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   configureApp(app);
   app.enableShutdownHooks();
