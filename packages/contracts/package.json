@@ -5,7 +5,10 @@
   "description": "後端、前端、轉接器共用的訊息格式與常數。Python 端對應 adapters/common/contracts.py",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -16,6 +19,10 @@
   },
   "devDependencies": {
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^5.0.5",
+    "vite": "^6.4.4"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

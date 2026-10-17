@@ -3,11 +3,12 @@ import type { CookieOptions, Request, Response } from 'express';
 import { z } from 'zod';
 import type { AuthConfig } from '../config';
 import { ZodPipe } from '../common/zod.pipe';
+import { SettingsService } from '../settings/settings.service';
 import { AUTH_CONFIG, AuthService, type AccessPayload } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import { PasswordPolicy } from './password';
 import { Authenticated } from './perm.decorator';
-import { Public } from './public.decorator';
+import { AllowPendingPassword, Public } from './public.decorator';
 import { REFRESH_COOKIE, REFRESH_COOKIE_PATH } from './refresh-token';
 
 const LoginBody = z.object({
@@ -26,6 +27,7 @@ export class AuthController {
 
   constructor(
     private readonly auth: AuthService,
+    private readonly settings: SettingsService,
     @Inject(AUTH_CONFIG) cfg: AuthConfig,
   ) {
     this.cookie = { httpOnly: true, secure: cfg.cookieSecure, sameSite: 'strict', path: REFRESH_COOKIE_PATH };
@@ -41,7 +43,7 @@ export class AuthController {
   ) {
     const r = await this.auth.login(body.username, body.password, req.ip ?? null);
     res.cookie(REFRESH_COOKIE, r.refreshToken, { ...this.cookie, expires: r.refreshExpiresAt });
-    return { accessToken: r.accessToken, user: r.user, perms: r.perms };
+    return { accessToken: r.accessToken, user: r.user, perms: r.perms, mustChangePassword: r.mustChangePassword, idleMinutes: await this.settings.idleMinutes() };
   }
 
   @Public()
@@ -59,6 +61,7 @@ export class AuthController {
   }
 
   @Authenticated()
+  @AllowPendingPassword()
   @Post('logout')
   @HttpCode(204)
   async logout(@CurrentUser() user: AccessPayload, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
@@ -67,6 +70,7 @@ export class AuthController {
   }
 
   @Authenticated()
+  @AllowPendingPassword()
   @Put('password')
   @HttpCode(204)
   async changePassword(

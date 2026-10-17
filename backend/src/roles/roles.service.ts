@@ -57,9 +57,9 @@ export class RolesService {
   /** 改名、改權限；系統角色（系統管理員）固定擁有全部權限，避免把自己鎖在門外 */
   async update(id: string, dto: Partial<SaveRole>, actor: Principal): Promise<RoleView> {
     const role = await this.get(id);
+    assertCanManageRole(actor, role);
     const perms = dto.perms && normalize(dto.perms);
-    // 只檢查新加入的權限：移除自己沒有的權限不算提升
-    if (perms) assertWithinOwnPerms(actor, perms.filter((p) => !role.perms.includes(p)), '新增的權限');
+    if (perms) assertWithinOwnPerms(actor, perms, '角色的權限');
     if (role.isSystem && perms && perms.join() !== normalize(role.perms as PermCode[]).join()) {
       throw new AppError('INVALID_STATE', '系統角色的權限不可修改');
     }
@@ -80,8 +80,9 @@ export class RolesService {
     return this.get(id);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, actor: Principal): Promise<void> {
     const role = await this.get(id);
+    assertCanManageRole(actor, role);
     if (role.isSystem) throw new AppError('INVALID_STATE', '系統角色不可刪除');
     if (role.memberCount > 0) {
       throw new AppError('INVALID_STATE', `尚有 ${role.memberCount} 個帳號使用此角色，請先改派`, {
@@ -106,6 +107,15 @@ export class RolesService {
       ])
       .groupBy('r.id');
   }
+}
+
+/**
+ * 不可改名、修改、刪除權限高於自己的角色（安全收尾 c）：例如把系統管理員以外的高權限角色改名混淆，
+ * 或刪掉它的權限。系統角色只有系統角色成員能動（其權限本來就固定）。
+ */
+function assertCanManageRole(actor: Principal, role: RoleView) {
+  if (role.isSystem && !actor.isSystem) throw new AppError('FORBIDDEN', '只有系統管理員能修改系統角色', { missing: [] });
+  assertWithinOwnPerms(actor, role.perms, '此角色的權限');
 }
 
 /** 去重並依權限樹順序排列 */

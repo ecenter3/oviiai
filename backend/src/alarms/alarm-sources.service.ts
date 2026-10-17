@@ -197,6 +197,8 @@ export class AlarmSourcesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async onCmdFailed(c: CmdRecord) {
+    // 機器人已刪除或停用（例：Redis 還留著它送出前的待回覆指令）：不發告警，否則寫入會違反外鍵
+    if (!(await this.registry.resolveId(c.robotId))) return;
     const why = c.status === 'timeout' ? '逾時未回應' : c.status === 'rejected' ? '被拒絕' : '執行失敗';
     await this.raise({
       type: 'cmd_failed',

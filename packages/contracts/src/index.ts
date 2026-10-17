@@ -27,6 +27,8 @@ export type Telemetry = z.infer<typeof Telemetry>;
 export const EventType = z.enum([
   'fault', 'fault_cleared', 'waypoint_reached', 'goal_reached', 'goal_failed',
   'charge_started', 'charge_finished', 'estop_pressed', 'sos', 'obstacle_blocked',
+  // 對講方案 A：轉接器拉 talk/{代碼} 失敗或中斷（T-31、PR #15 審查第 3 點）
+  'talk_failed',
 ]);
 export type EventType = z.infer<typeof EventType>;
 

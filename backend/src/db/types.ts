@@ -24,6 +24,7 @@ export interface UsersTable {
   failed_logins: ColumnType<number, number | undefined, number>;
   locked_until: Timestamp | null;
   last_login_at: Timestamp | null;
+  must_change_password: ColumnType<boolean, boolean | undefined, boolean>;
   created_at: ColumnType<Date, never, never>;
 }
 

@@ -10,6 +10,7 @@
 | `JWT_SECRET` | ≥ 32 字元，不可是範例值（`openssl rand -base64 48`） | 正式環境拒絕啟動 |
 | `DATA_ENC_KEY` | ≥ 32 字元（`openssl rand -base64 48`） | 正式環境拒絕啟動 |
 | `ADAPTER_KEY_<名稱>` | ≥ 16 字元（`openssl rand -hex 24`），每個轉接器一把 | 該轉接器取不到設定 |
+| `EMQX_JWT_SECRET` | ≥ 32 字元（`openssl rand -hex 32`），EMQX 與後端設同一把（第 10 節） | 正式環境拒絕啟動；轉接器連不上 MQTT |
 
 ### `DATA_ENC_KEY` 的保管（PR #10 審查第 4 點）
 - 攝影機 RTSP 帳密、機器人連線密碼以這把金鑰（pgcrypto `pgp_sym_encrypt`）加密存放。**金鑰遺失 = 所有密碼無法解密**，只能逐台重新輸入。
@@ -93,6 +94,51 @@ log_parameter_max_length_on_error = 0
   - 權限：瀏覽器拿後端核發的 **publish 憑證**（60 秒、只能推這一路）；轉接器拿 **短憑證**放在 RTSP 帳密（`rtsp://talk:<憑證>@…`）。短憑證約 33 字，因為 ffmpeg 的 RTSP 用 128 bytes 存網址帳密，一般憑證會被截斷（實測）。播放憑證不能用來推流或旁聽對講。
   - `MEDIA_ADAPTER_RTSP`：轉接器連 MediaMTX 的 RTSP 位址；轉接器在別台主機時要設，並開放轉接器網段到 MediaMTX 8554/TCP。
   - 瀏覽器只有在 **HTTPS**（或 localhost）下才給麥克風；正式環境一定要走 Nginx 的 HTTPS。第一次使用時瀏覽器會詢問麥克風權限。
-- **方案 B**：按住錄音、放開送出（最長 30 秒、1 MB），後端以 `speak` 指令把音檔（base64）送給轉接器播放；**音檔不留存**。
+- **方案 B**：按住錄音、放開送出（最長 30 秒、5 MB）。音檔暫存物件儲存 `speak/`，`speak` 指令只帶 **5 分鐘預簽名網址**，轉接器下載後播放；指令結束（完成、失敗、逾時）就刪檔，殘留的由每日保存期限排程清（1 天）。不把音檔塞進 MQTT：EMQX 預設封包上限 1 MB，超過會把後端斷線（PR #15 審查第 1 點）。
+  - `S3_ADAPTER_ENDPOINT`：轉接器連得到的 SeaweedFS S3 位址（預簽名網址簽在這個位址）；轉接器與後端同一台時不用設（用 `S3_ENDPOINT`）。轉接器在別台主機時開放轉接器網段到 S3 8333/TCP。
+- 只有對講者本人或系統管理員能結束對講（管理員結束時會踢掉對方的推流並通知對方）；轉接器拉流失敗或中斷時回報 `talk_failed` 事件，控制室畫面顯示「機器人端已斷線」並結束對講（PR #15 審查第 2、3 點）。
 - 對講的開始、結束與每次按鍵說話都記在操作日誌（`robot.talk_start`、`robot.talk_stop`、`robot.speak`），不記內容。
 
+
+## 10. MQTT 帳號與權限（EMQX，安全收尾 e）
+EMQX 不接受匿名連線。後端與每個轉接器各用自己的帳號，權限只到需要的主題，沒列到的一律拒絕：
+
+| 帳號 | 憑證從哪來 | 可發布 | 可訂閱 |
+|---|---|---|---|
+| `backend` | 後端用 `EMQX_JWT_SECRET` 自己簽，每次重連換新 | `rms/#` | `rms/#` |
+| 轉接器名稱（例 `mock`、`deep_x30`） | 轉接器以金鑰呼叫 `GET /adapter-config/<名稱>` 取得（24 小時效期） | 自己機器人的 `telemetry`、`event`、`ack`、`online`，自己的 `rms/adapter/<名稱>/status` | 自己機器人的 `cmd`、`teleop` |
+
+「自己的機器人」＝「機器人管理」裡轉接器欄填這個名稱、而且啟用中的機器人。轉接器每 10 秒同步設定時一併換新憑證；機器人增減時自動用新憑證重連（約 1 秒）。轉接器冒用別台的代碼發遙測、或訂閱別台的指令，EMQX 直接擋下。
+
+**EMQX 設定**（`emqx.conf` 或環境變數，開發環境見 `infra/docker-compose.dev.yml`）：
+```hocon
+authentication = [{
+  mechanism = jwt
+  from = password
+  use_jwks = false
+  algorithm = "hmac-based"
+  secret = "<EMQX_JWT_SECRET>"
+  secret_base64_encoded = false
+  acl_claim_name = acl
+  # 效期只在連線時檢查；連線中不因過期斷線（轉接器每 10 秒會拿新的，重連時用新的）
+  disconnect_after_expire = false
+  # JWT 只能用在簽給的那個帳號
+  verify_claims = { username = "${username}" }
+}]
+authorization {
+  no_match = deny
+  sources = []        # 權限全在 JWT 的 acl claim
+}
+```
+- 用環境變數設定時：`EMQX_AUTHENTICATION='[{mechanism = jwt, …}]'`、`EMQX_AUTHORIZATION__NO_MATCH=deny`、`EMQX_AUTHORIZATION__SOURCES='[]'`。docker compose 裡 `${username}` 要寫成 `$${username}`。
+- 只用 dashboard 改過設定的話，`data/configs/cluster.hocon` 會留著舊值；以設定檔為準時清掉該段或重建容器。
+- 改 `EMQX_JWT_SECRET` 時 EMQX 與後端一起改、一起重啟；轉接器在下次同步（10 秒內）拿到新憑證後自動重連。
+- 後端停機超過 24 小時，轉接器的憑證會過期：已連線的不受影響，但斷線後要等後端恢復才連得回來。
+- 轉接器沒有金鑰（`ADAPTER_KEY_<名稱>`）就拿不到憑證，連不上 MQTT。`MQTT_ADAPTER_USER`／`MQTT_ADAPTER_PASSWORD` 只用於 EMQX 沒開認證的環境。
+- 8883（MQTT TLS）與 18083（dashboard）不要對轉接器網段以外開放；dashboard 預設密碼（`EMQX_DASHBOARD_PASSWORD`）要改。
+
+## 11. 帳號與登入（安全收尾 a、b、c、d）
+- **管理員建立帳號或重設密碼後**，使用者下次登入必須先改密碼（新密碼不可與目前相同），改好之前除了改密碼與登出什麼都不能用（API 回 `PASSWORD_CHANGE_REQUIRED`）。
+- **沒有權限（403）會寫進操作日誌** `auth.forbidden`：對象是路由（例 `GET /api/v1/users/:id`），內容有實際路徑與缺少的權限。同一人同一路由 1 分鐘內只記一筆。
+- **角色管理**：不能改名、修改、刪除權限比自己高的角色；系統角色只有系統管理員能動。場域匯入時，修改既有角色也受同樣限制。
+- **閒置自動登出**：預設 30 分鐘沒有滑鼠、鍵盤、觸控就登出（「派工與充電規則」頁可改 10 分鐘～8 小時，或不自動登出）。對所有帳號、所有電腦生效；控制室大螢幕要一直顯示時改成「不自動登出」。這是登入政策，不隨場域設定包匯出入。

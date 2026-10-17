@@ -7,7 +7,7 @@ import { AuthRepository } from './auth.repository';
 import type { AccessPayload } from './auth.service';
 import { PERMS, satisfies, type PermRequirement } from './perm.decorator';
 import type { Principal } from './principal';
-import { IS_PUBLIC } from './public.decorator';
+import { ALLOW_PENDING_PASSWORD, IS_PUBLIC } from './public.decorator';
 
 /**
  * 全域 Guard：驗 Bearer access token → 從資料庫讀使用者目前的角色與權限 → 檢查 @RequirePerm。
@@ -50,7 +50,13 @@ export class AuthGuard implements CanActivate {
       roleName: user.roleName,
       isSystem: user.isSystem,
       perms: user.perms,
+      mustChangePassword: user.mustChangePassword,
     };
+
+    // 管理員建立帳號或重設密碼後，改密碼前只能用 /me、改密碼、登出
+    if (user.mustChangePassword && !this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_PASSWORD, targets)) {
+      throw new AppError('PASSWORD_CHANGE_REQUIRED', '請先修改密碼');
+    }
 
     const need = this.reflector.getAllAndOverride<PermRequirement | undefined>(PERMS, targets);
     if (need && !satisfies(user.perms, need)) {

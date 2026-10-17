@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import { iceGathered } from '../../components/media/VideoPlayer';
 import { t } from '../../i18n';
+import { useAuth } from '../../stores/auth';
+import { useTalkEvents } from '../../stores/talk';
 
 /** 對講顯示哪一種（依機器人能力；不做品牌判斷）：live 即時（方案 A）、ptt 按鍵說話（方案 B） */
 export function talkMode(caps: readonly string[]): 'live' | 'ptt' | null {
@@ -102,6 +104,19 @@ export function useLiveTalk(robotId: string | null) {
       setState({ s: 'idle' });
     };
   }, [robotId, teardown]);
+
+  // 後端結束了這次對講（機器人端斷線、系統管理員結束、本人在別的視窗結束）：關麥克風與 WHIP，不必再通知後端
+  const ended = useTalkEvents((s) => s.ended);
+  useEffect(() => {
+    if (!ended || ended.robotId !== robotId || !res.current) return;
+    const message =
+      ended.reason === 'robot_failed'
+        ? t('talk.err.robot')
+        : ended.byUserId && ended.byUserId === useAuth.getState().user?.id
+          ? t('talk.err.stoppedElsewhere')
+          : t('talk.err.stoppedBy', { by: ended.by ?? '' });
+    void teardown(false).then(() => setState({ s: 'error', message }));
+  }, [ended, robotId, teardown]);
 
   return { state, start, stop };
 }

@@ -21,6 +21,8 @@ export interface RetentionResult {
   oplogs: number;
   tasks: number;
   media: number;
+  /** 按鍵說話殘留的暫存音檔（正常是指令結束就刪） */
+  speak: number;
   files: string[];
 }
 
@@ -140,6 +142,11 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     for (const m of media) await this.storage.remove(m.object_key).catch(() => undefined);
     if (media.length) await this.db.deleteFrom('media').where('id', 'in', media.map((m) => m.id)).execute();
 
+    // 按鍵說話的暫存音檔：指令結束就刪，這裡清後端重啟等原因殘留的（超過 1 天）
+    const speakCut = now.getTime() - 86_400_000;
+    const speak = (await this.storage.list('speak/').catch(() => [])).filter((o) => o.lastModified.getTime() < speakCut);
+    for (const o of speak) await this.storage.remove(o.key).catch(() => undefined);
+
     // 操作日誌
     const logs = await this.db.selectFrom('op_logs').selectAll().where('at', '<', cutoff).orderBy('at').limit(MAX_ROWS).execute();
     if (logs.length) {
@@ -154,6 +161,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     if (alarms.length || logs.length || tasks.length || media.length) {
       this.log.log(`清除超過保存期限：告警 ${alarms.length}、任務 ${tasks.length}、操作日誌 ${logs.length}、抓拍錄影 ${media.length} 筆，備查檔：${files.join('、')}`);
     }
-    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, media: media.length, files };
+    if (speak.length) this.log.log(`清除殘留的按鍵說話音檔 ${speak.length} 個`);
+    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, media: media.length, speak: speak.length, files };
   }
 }

@@ -35,8 +35,13 @@ else
 fi
 ok "Python: $($PY --version)"
 
-# 3. Node 22
-if ! command -v node >/dev/null || [[ "$(node -v | cut -d. -f1)" != "v22" ]]; then
+# 3. Node 22（22.22.3 以上：NestJS 12 的 CLI 需要；vitest 5 需要 22.12 以上）
+node_ok() {
+  command -v node >/dev/null || return 1
+  local v; v=$(node -v | tr -d v)
+  [[ "${v%%.*}" == "22" ]] && printf '%s\n22.22.3\n' "$v" | sort -V -C -r
+}
+if ! node_ok; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
   sudo apt-get install -y nodejs
 fi
@@ -50,6 +55,15 @@ else
 fi
 cd "$DIR"
 [[ -f .env ]] || { cp .env.example .env; ok "已建立 .env（密碼請自行修改）"; }
+# 開發用金鑰：空的就產生（EMQX 認證、模擬器取設定與 MQTT 憑證都要）
+fill_secret() {  # $1 變數名 $2 產生的值
+  if grep -q "^$1=." .env; then return; fi
+  if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+  ok "已產生 .env 的 $1"
+}
+fill_secret EMQX_JWT_SECRET "$(openssl rand -hex 32)"
+fill_secret ADAPTER_KEY_MOCK "$(openssl rand -hex 24)"
+fill_secret DATA_ENC_KEY "$(openssl rand -hex 32)"
 
 # 5. 轉接器（Python）
 $PY -m venv adapters/.venv

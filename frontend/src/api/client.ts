@@ -65,8 +65,18 @@ async function request(path: string, init: RequestInit & { json?: unknown } = {}
     r = await send(token);
     if (r.status === 401) expire();
   }
-  if (!r.ok) throw await toApiError(r);
+  if (!r.ok) {
+    const e = await toApiError(r);
+    if (e.code === 'PASSWORD_CHANGE_REQUIRED') pwdRequired();
+    throw e;
+  }
   return r;
+}
+
+/** 管理員重設了密碼（後端回 PASSWORD_CHANGE_REQUIRED）：通知 auth store 顯示強制改密碼 */
+let pwdRequired = () => {};
+export function onPasswordChangeRequired(fn: () => void) {
+  pwdRequired = fn;
 }
 
 export { ApiError };

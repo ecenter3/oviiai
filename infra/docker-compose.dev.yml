@@ -35,6 +35,15 @@ services:
     restart: unless-stopped
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD}
+      # 帳號與權限（安全收尾 e）：JWT 認證，金鑰與後端共用；權限在 JWT 的 acl，沒列到的主題一律拒絕。
+      # 後端自己簽（帳號 backend），轉接器的由後端 GET /adapter-config/{name} 核發（帳號＝轉接器名稱，只含自己的機器人）。
+      # $${username}：compose 跳脫，EMQX 收到 ${username}（JWT 只能用在簽給的那個帳號）
+      EMQX_AUTHENTICATION: >-
+        [{mechanism = jwt, from = password, use_jwks = false, algorithm = "hmac-based",
+        secret = "${EMQX_JWT_SECRET:?請在 .env 設定 EMQX_JWT_SECRET（openssl rand -hex 32）}", secret_base64_encoded = false,
+        acl_claim_name = acl, disconnect_after_expire = false, verify_claims = {username = "$${username}"}}]
+      EMQX_AUTHORIZATION__NO_MATCH: deny
+      EMQX_AUTHORIZATION__SOURCES: "[]"
     ports:
       - "1883:1883"     # MQTT
       - "8883:8883"     # MQTT TLS（正式環境用）

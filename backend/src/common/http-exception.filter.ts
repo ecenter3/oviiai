@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import type { ForbiddenAuditService } from '../oplog/forbidden-audit.service';
 import { AppError, type ErrorBody, type ErrorCode } from './errors';
 
 const BY_STATUS: Record<number, ErrorCode> = {
@@ -15,14 +16,22 @@ const BY_STATUS: Record<number, ErrorCode> = {
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly log = new Logger('HttpException');
 
+  /** audit：403 寫進操作日誌（安全收尾 b） */
+  constructor(private readonly audit?: ForbiddenAuditService) {}
+
   catch(err: unknown, host: ArgumentsHost) {
     const res = host.switchToHttp().getResponse<Response>();
     if (err instanceof AppError) {
+      if (err.code === 'FORBIDDEN' && this.audit) {
+        const req = host.switchToHttp().getRequest<Request>();
+        void this.audit.record(req, { message: err.message, ...err.details });
+      }
       res.status(err.getStatus()).json(err.getResponse());
       return;
     }
     if (err instanceof HttpException) {
       const status = err.getStatus();
+      if (status === 403 && this.audit) void this.audit.record(host.switchToHttp().getRequest<Request>(), { message: err.message });
       const body: ErrorBody = {
         error: { code: BY_STATUS[status] ?? 'INTERNAL', message: status === 413 ? '檔案太大' : err.message, details: {} },
       };
