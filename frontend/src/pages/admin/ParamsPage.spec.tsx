@@ -1,10 +1,12 @@
 import { paramDefaults, type PermCode } from '@oviiai/contracts';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../stores/auth';
-import { ParamsPage } from './ParamsPage';
+import { useRealtime } from '../../stores/realtime';
+import { useToast } from '../../stores/toast';
+import { applyReport, ParamsPage } from './ParamsPage';
 
 let calls: { url: string; method: string; body?: Record<string, unknown> }[];
 function setup(perms: PermCode[] = ['params', 'op.config', 'settings']) {
@@ -23,7 +25,7 @@ function setup(perms: PermCode[] = ['params', 'op.config', 'settings']) {
           { id: 'r3', code: 'X30-001', floorId: '2f' },
         ]);
       if (url.endsWith('/floors')) return json([{ id: '1f', name: '1F 辦公室' }, { id: '2f', name: '2F 工廠' }]);
-      if (url.endsWith('/params') && init?.method === 'PUT') return json({ sync: 'sent', params: { ...params, [body.subsystem]: body.values } });
+      if (url.endsWith('/params') && init?.method === 'PUT') return json({ sync: 'sent', cmdId: 'c_p1', params: { ...params, [body.subsystem]: body.values } });
       if (url.endsWith('/params')) return json({ code: 'B2-001', floorId: '1f', params, chargeReturnAt: 25 });
       if (url.endsWith('/apply-floor')) return json({ updated: 2, results: [{ code: 'B2-001', sync: 'sent' }, { code: 'B2-002', sync: 'offline' }] });
       return json({});
@@ -93,5 +95,27 @@ describe('機器人參數（T-27）', () => {
     expect(screen.getByText('目前身分只能檢視參數')).toBeTruthy();
     expect(screen.getByText('25%')).toBeTruthy(); // 沒有 settings 權限也看得到全廠回充門檻
     expect(screen.queryByRole('link', { name: '到「派工與充電規則」調整' })).toBeNull();
+  });
+
+  it('儲存後等轉接器回報：顯示已套用幾項、此機型不支援哪些（PR #13 審查第 2 點）', async () => {
+    setup();
+    await screen.findByRole('slider', { name: '導航速度' });
+    useRealtime.setState({ cmdResults: [] });
+    fireEvent.click(screen.getByRole('button', { name: '儲存參數' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    act(() =>
+      useRealtime.getState().addCmdResult({ cmdId: 'c_p1', robotId: 'r1', code: 'B2-001', type: 'set_params', status: 'done', result: { applied: ['walk.speed'], ignored: ['walk.collide', 'walk.avoid'] } }),
+    );
+    await waitFor(() => expect(JSON.stringify(useToast.getState())).toContain('B2-001：已套用 1 項，此機型不支援：碰撞模式、繞障模式'));
+  });
+
+  it('applyReport：全部套用、失敗、舊版轉接器沒有 result、超過 6 項只列前 6 項', () => {
+    const base = { cmdId: 'c', robotId: 'r', code: 'B2-001', type: 'set_params' };
+    expect(applyReport('B2-001', { ...base, status: 'done', result: { applied: ['walk.speed'], ignored: [] } })).toEqual(['B2-001：1 項參數都已套用到機器人', 'ok']);
+    expect(applyReport('B2-001', { ...base, status: 'failed', error: { code: 'X', msg: '逾時' } })[1]).toBe('error');
+    expect(applyReport('B2-001', { ...base, status: 'done' })[0]).toBe('B2-001：機器人已收到參數');
+    const many = ['hardStop', 'strobe', 'strobeTimer', 'strobeTime', 'lightTimer', 'lightTime', 'collide', 'avoid'].map((k) => `walk.${k}`);
+    expect(applyReport('B2-001', { ...base, status: 'done', result: { applied: [], ignored: many } })[0]).toMatch(/照明燈時段 等 2 項$/);
   });
 });

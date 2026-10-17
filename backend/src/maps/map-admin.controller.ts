@@ -16,7 +16,7 @@ const Code = z.string().regex(/^[A-Z0-9][A-Z0-9-]{1,31}$/, '代碼只能用大�
 const Floor = z.string().regex(/^[a-z0-9]{1,8}$/);
 const Coord = z.number().finite().min(0).max(10_000);
 
-const ChargerBody = z
+export const ChargerBody = z
   .object({
     code: Code,
     floorId: Floor,
@@ -30,7 +30,7 @@ const ChargerBody = z
   })
   .strict();
 
-const CameraBody = z
+export const CameraBody = z
   .object({
     code: Code,
     name: z.string().trim().min(1).max(32),

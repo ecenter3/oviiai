@@ -16,6 +16,8 @@ export const RULES = {
   'alarm.aiConfidence': { schema: pct(30, 95), default: 70 },
   'robot.offlineSec': { schema: z.number().int().min(3).max(120), default: 10 },
   'cmd.timeoutSec': { schema: z.number().int().min(5).max(120), default: 15 },
+  /** 遙控鎖閒置多久（只收到零速度）自動回收，秒（PR #13 審查第 1 點） */
+  'teleop.idleSec': { schema: z.number().int().min(60).max(1800), default: 300 },
 } as const;
 
 export type RuleKey = keyof typeof RULES;

@@ -5,6 +5,8 @@ import { RequireLogin, RequirePage } from './components/RequirePage';
 import { LoginPage } from './pages/LoginPage';
 import { MapsPage } from './pages/admin/MapsPage';
 import { ParamsPage } from './pages/admin/ParamsPage';
+import { SetupPage } from './pages/admin/SetupPage';
+import { SitePage } from './pages/admin/SitePage';
 import { RobotAdminPage } from './pages/admin/RobotAdminPage';
 import { CapturesPage, RecordsPage } from './pages/media/MediaPages';
 import { NavPage } from './pages/nav/NavPage';
@@ -34,6 +36,8 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/captures': CapturesPage,
   '/records': RecordsPage,
   '/params': ParamsPage,
+  '/site': SitePage,
+  '/setup': SetupPage,
   '/remote': RemotePage,
   '/remote/:id': RemotePage,
 };

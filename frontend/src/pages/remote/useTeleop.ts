@@ -11,6 +11,9 @@ export const V_MAX = 1.0;
 export const WZ_MAX = 1.0;
 /** 沒在動時每 10 秒送一筆零速度，讓遙控鎖（TTL 30 秒）續期 */
 export const KEEPALIVE_MS = 10_000;
+/** 連續這麼久沒有操作就提示，提示後再過 IDLE_GRACE_MS 自動歸還（PR #13 審查第 1 點；後端另有 teleop.idleSec 回收） */
+export const IDLE_WARN_MS = 180_000;
+export const IDLE_GRACE_MS = 30_000;
 
 export type LockState =
   | { s: 'none' }
@@ -31,11 +34,17 @@ export function toVelocity(x: number, y: number): { vx: number; vy: number; wz: 
  * - 被接管、急停、鎖失效（teleop.revoked／teleop.error）或 WebSocket 斷線：搖桿歸零、狀態改為未持有。
  * - 換機器人、離開頁面：釋鎖（關分頁用 keepalive 請求）。
  */
-export function useTeleop(robotId: string | null) {
+export function useTeleop(robotId: string | null, onIdle?: () => void) {
+  const onIdleRelease = useRef(onIdle);
+  onIdleRelease.current = onIdle;
   const [lock, setLock] = useState<LockState>({ s: 'none' });
   const vec = useRef({ x: 0, y: 0 });
   const moving = useRef(false);
   const lastSent = useRef(0);
+  /** 最後一次有操作（取鎖、非零速度、按「繼續遙控」）的時間 */
+  const lastActive = useRef(0);
+  /** 閒置提示：還剩幾秒自動歸還；null 表示沒在提示 */
+  const [idleLeft, setIdleLeft] = useState<number | null>(null);
   const lockRef = useRef(lock);
   lockRef.current = lock;
   const conn = useRealtime((s) => s.conn);
@@ -56,6 +65,10 @@ export function useTeleop(robotId: string | null) {
     (x: number, y: number) => {
       vec.current = { x, y };
       const now = x !== 0 || y !== 0;
+      if (now) {
+        lastActive.current = Date.now();
+        setIdleLeft(null);
+      }
       if (!now && moving.current) send(0, 0);
       moving.current = now;
     },
@@ -76,6 +89,7 @@ export function useTeleop(robotId: string | null) {
   const drop = useCallback((next: LockState) => {
     vec.current = { x: 0, y: 0 };
     moving.current = false;
+    setIdleLeft(null);
     setLock(next);
   }, []);
 
@@ -103,6 +117,7 @@ export function useTeleop(robotId: string | null) {
       try {
         const r = await api<{ lockId: string }>(`/robots/${robotId}/teleop/acquire`, { method: 'POST', json: force ? { force: true } : {} });
         lastSent.current = Date.now();
+        lastActive.current = Date.now();
         setLock({ s: 'held', lockId: r.lockId });
       } catch (e) {
         if (e instanceof ApiError && e.code === 'TELEOP_LOCKED') {
@@ -140,5 +155,26 @@ export function useTeleop(robotId: string | null) {
     };
   }, [robotId]);
 
-  return { lock, acquire, release, setVector, connected: conn === 'connected' };
+  // 閒置：3 分鐘沒操作 → 提示倒數 30 秒 → 自動歸還
+  useEffect(() => {
+    if (!lockId) return;
+    const timer = setInterval(() => {
+      if (moving.current) lastActive.current = Date.now();
+      const idle = Date.now() - lastActive.current;
+      if (idle < IDLE_WARN_MS) return setIdleLeft(null);
+      const left = Math.ceil((IDLE_WARN_MS + IDLE_GRACE_MS - idle) / 1000);
+      if (left > 0) return setIdleLeft(left);
+      onIdleRelease.current?.();
+      void release();
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockId, release]);
+
+  /** 閒置提示上的「繼續遙控」 */
+  const keepAlive = useCallback(() => {
+    lastActive.current = Date.now();
+    setIdleLeft(null);
+  }, []);
+
+  return { lock, acquire, release, setVector, keepAlive, idleLeft, connected: conn === 'connected' };
 }

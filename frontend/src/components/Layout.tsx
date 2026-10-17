@@ -9,6 +9,7 @@ import { type Conn, useRealtime } from '../stores/realtime';
 import { AlarmPopup } from './AlarmPopup';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { Toaster } from './Toaster';
+import { useSetupAutoOpen } from './useSetupAutoOpen';
 
 const CONN_TEXT: Record<Conn, MessageKey> = {
   connected: 'top.realtime.connected',
@@ -38,6 +39,8 @@ export function Layout() {
   // 分組展開狀態：預設只展開目前頁面所在的組（原型行為）
   const current = menu.find((g) => g.items.some((p) => matches(p.path, location.pathname)))?.group;
   const [open, setOpen] = useState<Set<MessageKey>>(() => new Set(current ? [current] : [menu[0]?.group]));
+
+  useSetupAutoOpen();
 
   useEffect(() => {
     connectRealtime();

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
+import { BulkImportDialog } from '../../components/BulkImportDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { FloorMap } from '../../components/FloorMap/FloorMap';
 import { t, type MessageKey } from '../../i18n';
@@ -72,6 +73,7 @@ const MAX_PLAN = 15 * 1024 * 1024;
  */
 export function MapsPage() {
   const qc = useQueryClient();
+  const [bulk, setBulk] = useState(false);
   const floors = useQuery({
     queryKey: ['floors'],
     queryFn: () => api<Floor[]>('/floors'),
@@ -278,6 +280,7 @@ export function MapsPage() {
 
   return (
     <div className="pg2">
+      {bulk && <BulkImportDialog kind="cameras" onClose={() => setBulk(false)} onDone={() => void qc.invalidateQueries({ queryKey: ['cameras'] })} />}
       <section className="panel">
         <div className="pane-head">
           <span className="title">{t('page.maps')}</span>
@@ -409,7 +412,12 @@ export function MapsPage() {
               </table>
             </div>
 
-            <h3 className="sub-h">{t('maps.cameras', { n: cameras.data?.length ?? 0 })}</h3>
+            <h3 className="sub-h">
+              {t('maps.cameras', { n: cameras.data?.length ?? 0 })}
+              <button type="button" className="obtn" onClick={() => setBulk(true)}>
+                {t('bulk.open')}
+              </button>
+            </h3>
             <div className="tbl-wrap">
               <table className="dtbl">
                 <thead>

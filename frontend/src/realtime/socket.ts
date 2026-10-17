@@ -70,7 +70,8 @@ export function connectRealtime(): void {
   socket.on('media.recording', (m: { active: ActiveRecording[] }) => useMedia.getState().setRecordings(m.active));
   socket.on('teleop.revoked', (m: Omit<TeleopRevoked, 'at'>) => {
     useTeleopEvents.getState().setRevoked(m);
-    useToast.getState().show(m.reason === 'estop' ? t('teleop.revoked.estop', { code: m.code }) : t('teleop.revoked.takeover', m), 'warn');
+    const key = m.reason === 'estop' ? 'teleop.revoked.estop' : m.reason === 'idle' ? 'teleop.revoked.idle' : 'teleop.revoked.takeover';
+    useToast.getState().show(t(key, m), 'warn');
   });
   socket.on('teleop.error', (m: Omit<TeleopError, 'at'>) => useTeleopEvents.getState().setError(m));
 

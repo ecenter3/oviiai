@@ -22,6 +22,7 @@ import { MediaModule } from './media/media.module';
 import { NavModule } from './nav/nav.module';
 import { ParamsModule } from './params/params.module';
 import { SiteModule } from './site/site.module';
+import { SiteSetupModule } from './site-setup/site-setup.module';
 import { StorageModule } from './storage/storage.module';
 
 // 模組依工程開發手冊「後端」章節逐步加入：
@@ -47,6 +48,7 @@ import { StorageModule } from './storage/storage.module';
     AlarmsModule,
     NavModule,
     SiteModule,
+    SiteSetupModule,
     CalibrationModule,
     MediaModule,
     MaintenanceModule,

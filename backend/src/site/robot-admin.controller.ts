@@ -17,7 +17,7 @@ import { OpLog } from '../oplog/oplog.decorator';
 export const BRANDS = ['anbot', 'unitree', 'deep'] as const;
 export const CAPS = ['ptz', 'light', 'talk', 'follow', 'lift', 'env'] as const;
 
-const Conn = z
+export const Conn = z
   .object({
     host: z.string().trim().max(253).regex(/^[A-Za-z0-9.:_-]+$/, '主機名稱或 IP 格式錯誤').optional(),
     port: z.number().int().min(1).max(65535).optional(),
@@ -38,7 +38,7 @@ const RobotBase = z.object({
   caps: z.array(z.enum(CAPS)).max(CAPS.length).default([]),
   modules: z.record(z.union([z.boolean(), z.string().max(64)])).default({}),
 });
-const CreateRobot = RobotBase.extend({
+export const CreateRobot = RobotBase.extend({
   code: z.string().regex(/^[A-Z0-9][A-Z0-9-]{1,31}$/, '代碼只能用大寫英數與連字號，例：B2-003'),
   brand: z.enum(BRANDS),
 }).strict();
