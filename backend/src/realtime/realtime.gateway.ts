@@ -19,6 +19,7 @@ import type { Principal } from '../auth/principal';
 import { visibleCategories } from '../alarms/alarms.controller';
 import { type AlarmCategory, AlarmsService } from '../alarms/alarms.service';
 import { ChargingService } from '../charging/charging.service';
+import { MediaService } from '../media/media.service';
 import { CommandBus } from '../commands/command-bus.service';
 import { CommandsService, type TeleopResult } from '../commands/commands.service';
 import { TeleopLock } from '../commands/teleop-lock.service';
@@ -30,7 +31,7 @@ import { StatsService } from './stats.service';
 /** 看得到機器人即時狀態的頁面：實時監控、機器人狀態、實時遙控（subscribe 樓層需要） */
 const ROBOT_PERMS = { mode: 'any' as const, codes: ['monitor' as const, 'robots' as const, 'remote' as const] };
 /** 可以連線：看機器人，或只看告警（告警頁的使用者也要收 alarm.new 彈窗響鈴） */
-const WS_PERMS = { mode: 'any' as const, codes: [...ROBOT_PERMS.codes, 'sysalarm' as const, 'bizalarm' as const] };
+const WS_PERMS = { mode: 'any' as const, codes: [...ROBOT_PERMS.codes, 'sysalarm' as const, 'bizalarm' as const, 'captures' as const, 'records' as const] };
 
 const Subscribe = z.object({ floors: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(10) });
 
@@ -41,6 +42,10 @@ export const TASKS_ROOM = 'tasks';
 const TASK_PERMS = { mode: 'any' as const, codes: ['dispatch' as const, 'monitor' as const] };
 /** 告警依類別分房間：與 GET /alarms 相同的可見範圍 */
 export const alarmRoom = (category: AlarmCategory) => `alarms:${category}`;
+/** 新抓拍給有抓拍圖片權限的、新錄影給有錄像回放權限的；錄影中狀態給看影像的頁面（T-28） */
+export const mediaRoom = (kind: 'snapshot' | 'clip') => `media:${kind}`;
+export const RECORDING_ROOM = 'media:recording';
+const RECORDING_PERMS = { mode: 'any' as const, codes: ['monitor' as const, 'robots' as const, 'remote' as const, 'records' as const] };
 
 interface SocketData {
   user: Principal;
@@ -83,6 +88,7 @@ export class RealtimeGateway
     private readonly tasks: TasksService,
     private readonly charging: ChargingService,
     private readonly alarms: AlarmsService,
+    private readonly media: MediaService,
   ) {}
 
   afterInit(server: Server) {
@@ -107,6 +113,8 @@ export class RealtimeGateway
       // 告警（介面規格 §4 alarm.new：告警物件＋通知設定；alarm.updated：狀態、處理人、重複次數）
       this.alarms.created$.subscribe((m) => server.to(alarmRoom(m.alarm.category)).emit('alarm.new', m)),
       this.alarms.updated$.subscribe((m) => server.to(alarmRoom(m.category)).emit('alarm.updated', m)),
+      this.media.created$.subscribe((m) => server.to(mediaRoom(m.kind as 'snapshot' | 'clip')).emit('media.new', m)),
+      this.media.recordings$.subscribe((m) => server.to(RECORDING_ROOM).emit('media.recording', m)),
       this.lock.revoked$.subscribe((m) =>
         server.to(userRoom(m.previous.userId)).emit('teleop.revoked', { robotId: m.robotId, code: m.code, by: m.by, reason: m.reason }),
       ),
@@ -203,6 +211,9 @@ export class RealtimeGateway
     await socket.join(userRoom(u.id));
     if (satisfies(u.perms, TASK_PERMS)) await socket.join(TASKS_ROOM);
     for (const c of visibleCategories(u.perms)) await socket.join(alarmRoom(c));
+    if (u.perms.includes('captures')) await socket.join(mediaRoom('snapshot'));
+    if (u.perms.includes('records')) await socket.join(mediaRoom('clip'));
+    if (satisfies(u.perms, RECORDING_PERMS)) await socket.join(RECORDING_ROOM);
     if (payload.exp) {
       data.expiryTimer = setTimeout(
         () => {

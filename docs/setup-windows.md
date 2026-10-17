@@ -81,7 +81,12 @@ New-NetFirewallRule -DisplayName "DDS" -Direction Inbound -Protocol UDP -LocalPo
 | └ Docker 服務（已設上限） | 約 3.5 GB，含 MediaMTX 4 GB |
 | └ 後端 + 前端 dev server + 轉接器 | 約 2 GB |
 
-不需要看影像時不要開 MediaMTX（`make up` 預設不開）。
+不需要看影像時不要開 MediaMTX（`make up` 預設不開）。要看影像時：
+```bash
+make up-media           # = docker compose --profile media up -d
+```
+- 開發環境沒有真攝影機：`MEDIA_TEST_SOURCE` 預設在非正式環境開啟，後端會讓每支攝影機與機器人前鏡頭播 MediaMTX 內建 ffmpeg 產生的測試畫面（有人看才產生）。
+- 改了 `infra/mediamtx.yml` 之後要 `docker compose -f infra/docker-compose.dev.yml --profile media up -d --force-recreate mediamtx`：編輯器存檔會換掉檔案，容器裡掛載的還是舊檔，單純 restart 讀不到新設定。
 
 ## 6. 注意：筆電不適合當正式主機
 - X30 在上位機斷線時會自動停止任務；筆電睡眠、Windows 更新重開都會中斷所有巡邏。

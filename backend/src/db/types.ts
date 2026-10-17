@@ -185,6 +185,26 @@ export interface RobotMapCalibTable {
   updated_at: ColumnType<Date, never, Date>;
 }
 
+export interface MediaTable {
+  id: Generated<string>;
+  kind: 'snapshot' | 'clip' | 'audio' | 'image';
+  robot_id: string | null;
+  camera_id: string | null;
+  alarm_id: string | null;
+  task_id: string | null;
+  object_key: string;
+  /** bigint：pg 回傳字串 */
+  size_bytes: ColumnType<string | null, number | null | undefined, number | null>;
+  duration_s: number | null;
+  created_by: string | null;
+  created_at: ColumnType<Date, Date | string | undefined, Date | string>;
+  source: ColumnType<'manual' | 'patrol' | 'alarm', 'manual' | 'patrol' | 'alarm' | undefined, 'manual' | 'patrol' | 'alarm'>;
+  stream_key: string | null;
+  floor_id: string | null;
+  ended_at: Timestamp | null;
+  content_type: string | null;
+}
+
 export interface ZonesTable {
   id: Generated<string>;
   floor_id: string;
@@ -290,6 +310,7 @@ export interface DB {
   task_events: TaskEventsTable;
   pois: PoisTable;
   zones: ZonesTable;
+  media: MediaTable;
   robot_map_calib: RobotMapCalibTable;
   patrol_schedules: PatrolSchedulesTable;
   paths: PathsTable;

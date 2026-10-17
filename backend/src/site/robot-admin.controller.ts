@@ -10,6 +10,7 @@ import { dataEncKey } from '../config';
 import { KYSELY, type Database } from '../db/database.module';
 import { FleetService } from '../fleet/fleet.service';
 import { RobotRegistry } from '../fleet/robot-registry';
+import { StreamsService } from '../media/streams.service';
 import { OpLog } from '../oplog/oplog.decorator';
 
 /** 品牌是資料值（資料庫 CHECK 限定這三個）；能力清單決定畫面上的功能，不做品牌判斷 */
@@ -57,6 +58,7 @@ export class RobotAdminController {
     @Inject(KYSELY) private readonly db: Database,
     private readonly registry: RobotRegistry,
     private readonly fleet: FleetService,
+    private readonly streams: StreamsService,
   ) {}
 
   /** 機器人管理頁清單：含停用的，連線密碼只回是否已設定 */
@@ -111,6 +113,7 @@ export class RobotAdminController {
         .returning(['id', 'code'])
         .executeTakeFirstOrThrow();
       await this.registry.load();
+      void this.streams.sync();
       return r;
     } catch (e) {
       if (pgCode(e) === PG_UNIQUE_VIOLATION) throw new AppError('VALIDATION_FAILED', `代碼 ${b.code} 已存在`, { fields: { code: '代碼已存在' } });
@@ -141,6 +144,7 @@ export class RobotAdminController {
       .executeTakeFirst();
     if (!r) throw new AppError('NOT_FOUND', '找不到機器人');
     await this.registry.load();
+    void this.streams.sync();
     return r;
   }
 
@@ -154,6 +158,7 @@ export class RobotAdminController {
     if (!r) throw new AppError('NOT_FOUND', '找不到機器人');
     await this.db.updateTable('chargers').set({ occupied_by: null }).where('occupied_by', '=', id).execute();
     await this.registry.load();
+    void this.streams.sync();
     return { ...r, enabled: false };
   }
 

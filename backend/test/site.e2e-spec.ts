@@ -248,7 +248,7 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
         .executeTakeFirstOrThrow();
       expect(row.rtsp_url.toString('latin1')).not.toContain('cam-secret');
       expect(row.plain).toBe('rtsp://admin:cam-secret@10.0.0.20/stream1');
-      expect(row.stream_key).toBe(`cam-${code.toLowerCase()}`);
+      expect(row.stream_key).toBe(`cam/${code}`);
       const list = (await as(viewer, http().get(`/api/v1/cameras?floor=${FLOOR}`)).expect(200)).body;
       expect(list[0]).toMatchObject({ code, hasRtsp: true });
       expect(JSON.stringify(list)).not.toContain('cam-secret');

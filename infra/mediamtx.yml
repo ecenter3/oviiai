@@ -1,17 +1,31 @@
-# MediaMTX 開發設定：不轉碼、有人看才拉流、播放權限由後端驗證 60 秒憑證
+# MediaMTX 開發設定（工程開發手冊「影像與整合」§1）：不轉碼、有人看才拉流、播放權限由後端驗證。
+# 路徑（cam/{代碼}、robot/{代碼}/front）由後端用 Control API 動態新增，RTSP 帳密不出現在這個檔案。
 logLevel: info
+
 api: yes
 apiAddress: :9997
+
 rtsp: yes
 rtspAddress: :8554
+rtspTransports: [tcp]
+
 webrtc: yes
 webrtcAddress: :8889
-webrtcLocalUDPAddress: :8189
+# 開發機在 Docker 裡：ICE 用 TCP 8189 並宣告本機位址，瀏覽器才連得到（場內正式機不需要）
+webrtcLocalUDPAddress: ""
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [127.0.0.1]
+webrtcICEServers2: []
+
 hls: no
 rtmp: no
 srt: no
+moq: no
 
-# 後端 /internal/media/auth 驗證 token（WHEP 請求帶 ?token=）
+# 每次讀取／發布都回呼後端（/internal/media/auth）：
+# - 瀏覽器播放（WHEP）帶後端核發的 60 秒憑證 ?token=
+# - 後端抓拍、錄影與測試影像源用內部帳號（MEDIA_INTERNAL_USER/PASSWORD）
 authMethod: http
 authHTTPAddress: http://host.docker.internal:3000/internal/media/auth
 authHTTPExclude:
@@ -21,10 +35,7 @@ authHTTPExclude:
 pathDefaults:
   sourceOnDemand: yes
   sourceOnDemandStartTimeout: 10s
-  sourceOnDemandCloseAfter: 15s
+  sourceOnDemandCloseAfter: 10s
+  rtspTransport: tcp
 
-# 攝影機路徑由後端透過 API 動態新增（POST /v3/config/paths/add/cam-<id>）
-paths:
-  # 測試用：把任一 RTSP 位址填入即可在瀏覽器測試
-  test:
-    source: rtsp://user:pass@192.168.0.10:554/stream1
+paths: {}

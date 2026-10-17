@@ -1,4 +1,5 @@
 import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { Readable } from 'node:stream';
 
@@ -16,6 +17,16 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
     forcePathStyle: true,
     credentials: { accessKeyId: process.env.S3_ACCESS_KEY || '', secretAccessKey: process.env.S3_SECRET_KEY || '' },
   });
+  /**
+   * 預簽名網址給瀏覽器直接下載（介面規格 GET /media/:id/url）：簽在瀏覽器連得到的位址（S3_PUBLIC_ENDPOINT，
+   * 正式環境經 Nginx），簽名包含主機名稱，所以要用這個位址簽，不能簽完再換。
+   */
+  private readonly publicS3 = new S3Client({
+    endpoint: process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT || 'http://localhost:8333',
+    region: process.env.S3_REGION || 'us-east-1',
+    forcePathStyle: true,
+    credentials: { accessKeyId: process.env.S3_ACCESS_KEY || '', secretAccessKey: process.env.S3_SECRET_KEY || '' },
+  });
   private ready: Promise<void> | null = null;
 
   onModuleInit() {
@@ -27,6 +38,17 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     this.s3.destroy();
+    this.publicS3.destroy();
+  }
+
+  /** 預簽名網址（預設 5 分鐘）；filename 給了就以附件下載 */
+  async presign(key: string, opts: { filename?: string; ttlSec?: number } = {}): Promise<string> {
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ...(opts.filename && { ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(opts.filename)}` }),
+    });
+    return getSignedUrl(this.publicS3, cmd, { expiresIn: opts.ttlSec ?? 300 });
   }
 
   async put(key: string, body: Buffer | string, contentType: string): Promise<void> {
