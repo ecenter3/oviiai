@@ -10,10 +10,9 @@ import argparse
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 import yaml
-
-from pathlib import Path
 
 from common.bridge import Bridge
 from common.config_sync import SYNC_PERIOD_S, adapter_key, backend_url, fetch_config, load_dotenv

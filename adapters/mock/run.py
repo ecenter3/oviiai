@@ -18,7 +18,14 @@ from typing import Any
 import yaml
 
 from common.bridge import Bridge
-from common.config_sync import adapter_key, backend_url, fetch_config, load_dotenv, request_calibrations, transform_of
+from common.config_sync import (
+    adapter_key,
+    backend_url,
+    fetch_config,
+    load_dotenv,
+    request_calibrations,
+    transform_of,
+)
 
 from .driver import MockDriver
 
