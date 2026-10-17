@@ -8,6 +8,7 @@ import { FleetService } from '../fleet/fleet.service';
 import { RobotRegistry } from '../fleet/robot-registry';
 import type { RobotInfo } from '../fleet/types';
 import { MqttService } from '../mqtt/mqtt.service';
+import { SettingsService } from '../settings/settings.service';
 import { CommandBus, type CmdRecord } from './command-bus.service';
 import { ALWAYS_ALLOWED, MOTION, USER_COMMANDS, type UserCommandType } from './command-spec';
 import { TELEOP_TTL_SEC, TeleopLock } from './teleop-lock.service';
@@ -25,10 +26,18 @@ const TeleopIn = z.object({
 
 export type TeleopResult = 'ok' | 'not_holder' | 'not_found' | 'offline' | 'forbidden' | 'estop';
 
+/** 閒置檢查間隔；閒置時間本身是設定 teleop.idleSec（派工與充電規則頁） */
+export const IDLE_CHECK_MS = 10_000;
+/** 速度小於這個值視為零速度（前端每 10 秒送一筆零速度續期，不算操作） */
+const MOVING = 1e-3;
+
 @Injectable()
 export class CommandsService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Commands');
   private sub?: Subscription;
+  private idleTimer?: NodeJS.Timeout;
+  /** 各台遙控鎖最後一次收到非零速度的時間（PR #13 審查第 1 點：持有人離開座位時鎖不會一直續期） */
+  private readonly activity = new Map<string, { lockId: string; lastMove: number }>();
 
   /** 使用者對機器人下了指令（派工據此暫停或中止該台的任務） */
   readonly issued$ = new Subject<{ robot: RobotInfo; type: UserCommandType; userId: string }>();
@@ -57,6 +66,7 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
     private readonly registry: RobotRegistry,
     private readonly fleet: FleetService,
     private readonly mqtt: MqttService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** 機器人自己回報急停（實體急停按鈕）：釋放遙控鎖並通知持有人（PR #4 審查第 1 點） */
@@ -66,10 +76,44 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
         void this.releaseOnEstop(e.robot, '機器人急停').catch((err) => this.log.error(String(err)));
       }
     });
+    this.idleTimer = setInterval(() => void this.sweepIdle().catch((err) => this.log.error(String(err))), IDLE_CHECK_MS);
   }
 
   onModuleDestroy() {
     this.sub?.unsubscribe();
+    clearInterval(this.idleTimer);
+  }
+
+  /**
+   * 遙控鎖閒置回收：持有人連續 teleop.idleSec（預設 300 秒）只送零速度（或什麼都沒送），
+   * 回收鎖、照「歸還自動」的流程讓任務繼續，並以 teleop.revoked（reason: idle）通知持有人。
+   * 前端另有 3 分鐘提示＋30 秒自動歸還，這裡是後端那一層保護。
+   */
+  async sweepIdle(now = Date.now()): Promise<void> {
+    if (!this.activity.size) return;
+    const idleMs = (await this.settings.getNumber('teleop.idleSec', 300)) * 1000;
+    for (const [code, a] of [...this.activity]) {
+      const h = await this.lock.holder(code);
+      if (!h || h.lockId !== a.lockId) {
+        this.activity.delete(code);
+        continue;
+      }
+      if (now - a.lastMove < idleMs) continue;
+      const robot = this.registry.get(code);
+      if (!robot || !(await this.lock.release(code, h))) continue;
+      this.activity.delete(code);
+      this.log.warn(`${code} 遙控閒置 ${Math.round((now - a.lastMove) / 1000)} 秒，回收 ${h.username} 的遙控鎖`);
+      await this.afterRelease(robot, null);
+      this.teleop$.next({ robot, acquired: false, userId: h.userId });
+      this.lock.revoked$.next({ code, robotId: robot.id, floor: robot.floor, previous: h, by: '系統', reason: 'idle' });
+    }
+  }
+
+  /** 歸還後讓任務繼續（手動歸還與閒置回收共用） */
+  private async afterRelease(robot: RobotInfo, userId: string | null) {
+    if (this.fleet.get(robot.code)?.online && (await this.resumeOnRelease(robot))) {
+      await this.bus.send(robot, 'resume', {}, userId);
+    }
   }
 
   async robot(id: string): Promise<RobotInfo> {
@@ -143,6 +187,7 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
     const cur = await this.lock.holder(robot.code);
     if (cur?.userId === actor.sub) {
       await this.lock.renew(robot.code, cur.lockId, actor.sub);
+      this.activity.set(robot.code, { lockId: cur.lockId, lastMove: Date.now() });
       return { lockId: cur.lockId, ttlSec: TELEOP_TTL_SEC };
     }
     let holder = cur ? undefined : await this.lock.tryAcquire(robot.code, actor.sub, actor.username);
@@ -169,6 +214,7 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
       }
     }
     await this.bus.send(robot, 'pause', {}, actor.sub);
+    this.activity.set(robot.code, { lockId: holder.lockId, lastMove: Date.now() });
     this.teleop$.next({ robot, acquired: true, userId: actor.sub });
     return { lockId: holder.lockId, ttlSec: TELEOP_TTL_SEC };
   }
@@ -182,9 +228,8 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
       throw new AppError('TELEOP_LOCKED', `${robot.code} 正由 ${cur.username} 遙控中`, { holder: cur.username });
     }
     await this.lock.release(robot.code, cur);
-    if (this.fleet.get(robot.code)?.online && (await this.resumeOnRelease(robot))) {
-      await this.bus.send(robot, 'resume', {}, actor.sub);
-    }
+    this.activity.delete(robot.code);
+    await this.afterRelease(robot, actor.sub);
     this.teleop$.next({ robot, acquired: false, userId: actor.sub });
   }
 
@@ -198,6 +243,11 @@ export class CommandsService implements OnModuleInit, OnModuleDestroy {
     // 急停中一律不轉發（PR #4 審查第 1 點）；轉接器那一層也會擋
     if (this.fleet.get(robot.code)?.state === 'estop') return 'estop';
     if (!(await this.lock.renew(robot.code, msg.data.lockId, user.sub))) return 'not_holder';
+    const moving = Math.abs(msg.data.vx) > MOVING || Math.abs(msg.data.vy) > MOVING || Math.abs(msg.data.wz) > MOVING;
+    const a = this.activity.get(robot.code);
+    // 沒有紀錄（後端重啟）或換了一把鎖：從現在起算
+    if (!a || a.lockId !== msg.data.lockId) this.activity.set(robot.code, { lockId: msg.data.lockId, lastMove: Date.now() });
+    else if (moving) a.lastMove = Date.now();
     if (!this.mqtt.connected) return 'offline';
     const out: Teleop = { lockId: msg.data.lockId, vx: msg.data.vx, vy: msg.data.vy, wz: msg.data.wz, ts: Date.now() };
     await this.mqtt.publish(topics.teleop(robot.code), JSON.stringify(out), 0);

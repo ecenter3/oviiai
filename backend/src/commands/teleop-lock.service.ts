@@ -30,14 +30,14 @@ const RELEASE = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call
  */
 @Injectable()
 export class TeleopLock {
-  /** 被強制接管或因急停被釋放時通知原持有人 */
+  /** 被強制接管、因急停被釋放、或閒置過久被回收時通知原持有人 */
   readonly revoked$ = new Subject<{
     code: string;
     robotId: string;
     floor: string;
     previous: TeleopHolder;
     by: string;
-    reason: 'takeover' | 'estop';
+    reason: 'takeover' | 'estop' | 'idle';
   }>();
 
   constructor(@Inject(REDIS) private readonly redis: Redis) {}

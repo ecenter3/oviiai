@@ -211,6 +211,10 @@ async def test_set_params_stored_and_limits_teleop_speed(setup):
     await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
     assert ("p1", "done", None) in b.acks()
     assert d.speed_limit() == 0.6
+    done = next(m for t, m in b.sent if t.endswith("/ack") and m["cmdId"] == "p1" and m["status"] == "done")
+    # PR #13 審查第 2 點：ack 帶已套用／不支援的項目；mock 的導航速度也跟著降
+    assert done["result"] == {"applied": ["walk.speed"], "ignored": []}
+    assert d.max_speed == 0.6
     await b.on_message("rms/robot/B2-001/teleop", json.dumps({"lockId": "L", "vx": 1.2, "vy": 1.6, "wz": 2.0, "ts": now_ms()}))
     vx, vy, wz = d._vel
     assert (vx, vy) == (pytest.approx(0.36), pytest.approx(0.48)) and wz == 2.0  # 方向不變、等比例縮到 0.6
@@ -230,3 +234,12 @@ async def test_mock_ptz_light_follow(setup):
     await b.on_message("rms/robot/B2-001/cmd", cmd("d", "follow_stop"))
     await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
     assert d.following is None
+
+
+async def test_set_params_reports_ignored_items(setup):
+    b, d = setup
+    params = {"walk": {"speed": 0.8, "collide": "safe"}, "video": {"stream": "normal"}, "talk": {}, "ext": {}}
+    await b.on_message("rms/robot/B2-001/cmd", cmd("p1", "set_params", params=params))
+    await asyncio.wait_for(asyncio.gather(*list(b._side)), 1)
+    done = next(m for t, m in b.sent if t.endswith("/ack") and m["status"] == "done")
+    assert done["result"] == {"applied": ["walk.speed"], "ignored": ["walk.collide", "video.stream"]}

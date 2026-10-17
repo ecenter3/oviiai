@@ -10,12 +10,13 @@ import {
   type SubsystemValues,
 } from '@oviiai/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../../api/client';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { t, type MessageKey } from '../../i18n';
 import { useAuth } from '../../stores/auth';
+import { type CmdResult, useRealtime } from '../../stores/realtime';
 import { useToast } from '../../stores/toast';
 
 interface RobotOpt {
@@ -68,6 +69,17 @@ const tipOf = (k: string): string | null => {
 const opt = (o: string) => t(`params.opt.${o}` as MessageKey);
 const unitOf = (u?: string) => (u === 's' ? t('params.unit.s') : (u ?? ''));
 
+/** 「已套用 N 項，此機型不支援：…」（項目名稱用表單上的欄位名稱） */
+export function applyReport(code: string, r: CmdResult): [string, 'ok' | 'warn' | 'error'] {
+  if (r.status !== 'done') return [t('params.applyFailed', { code, reason: r.error?.msg ?? r.error?.code ?? r.status }), 'error'];
+  const res = r.result as { applied?: string[]; ignored?: string[] } | undefined;
+  if (!res?.applied) return [t('params.appliedUnknown', { code }), 'ok'];
+  const names = (res.ignored ?? []).map((k) => label(k.split('.')[1] ?? k));
+  if (!names.length) return [t('params.appliedAll', { code, n: res.applied.length }), 'ok'];
+  const list = names.length > 6 ? `${names.slice(0, 6).join('、')}${t('params.andMore', { n: names.length - 6 })}` : names.join('、');
+  return [t('params.appliedSome', { code, n: res.applied.length, list }), 'warn'];
+}
+
 /** 每個欄位第一個錯誤訊息（依 contracts 的 subsystemSchema，與後端同一份） */
 function errorsOf(sub: ParamSubsystem, values: SubsystemValues | null): Record<string, string> {
   if (!values) return {};
@@ -113,6 +125,18 @@ export function ParamsPage() {
   // 換機器人、換子系統、重新載入：表單回到已儲存的值
   useEffect(() => setForm(saved ? structuredClone(saved) : null), [saved]);
 
+  // 轉接器回報實際套用的項目（ack result：{applied, ignored}；PR #13 審查第 2 點）
+  const pending = useRef(new Map<string, string>());
+  const results = useRealtime((s) => s.cmdResults);
+  useEffect(() => {
+    for (const r of results) {
+      const code = pending.current.get(r.cmdId);
+      if (code === undefined || r.status === 'accepted') continue;
+      pending.current.delete(r.cmdId);
+      useToast.getState().show(...applyReport(code, r));
+    }
+  }, [results]);
+
   const errs = useMemo(() => errorsOf(sub, form), [sub, form]);
   const dirty = !!form && !!saved && JSON.stringify(form) !== JSON.stringify(saved);
   const set = (k: string, v: unknown) => setForm((f) => (f ? { ...f, [k]: v } : f));
@@ -121,11 +145,12 @@ export function ParamsPage() {
     if (!rid || !form || Object.keys(errs).length) return false;
     setBusy(true);
     try {
-      const r = await api<{ sync: Sync; params: RobotParams }>(`/robots/${rid}/params`, { method: 'PUT', json: { subsystem: sub, values: form } });
+      const r = await api<{ sync: Sync; params: RobotParams; cmdId?: string }>(`/robots/${rid}/params`, { method: 'PUT', json: { subsystem: sub, values: form } });
       qc.setQueryData(['params', rid], (old: { params: RobotParams } | undefined) => (old ? { ...old, params: r.params } : old));
       const code = robot?.code ?? '';
       const key = r.sync === 'sent' ? 'params.saved' : r.sync === 'offline' ? 'params.savedOffline' : 'params.savedFailed';
       useToast.getState().show(t(key, { code }), r.sync === 'sent' ? 'ok' : 'warn');
+      if (r.cmdId) pending.current.set(r.cmdId, code);
       return true;
     } catch (e) {
       useToast.getState().show(e instanceof ApiError ? e.message : String(e), 'error');

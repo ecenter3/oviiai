@@ -31,7 +31,8 @@ import { StatsService } from './stats.service';
 /** 看得到機器人即時狀態的頁面：實時監控、機器人狀態、實時遙控（subscribe 樓層需要） */
 const ROBOT_PERMS = { mode: 'any' as const, codes: ['monitor' as const, 'robots' as const, 'remote' as const] };
 /** 可以連線：看機器人，或只看告警（告警頁的使用者也要收 alarm.new 彈窗響鈴） */
-const WS_PERMS = { mode: 'any' as const, codes: [...ROBOT_PERMS.codes, 'sysalarm' as const, 'bizalarm' as const, 'captures' as const, 'records' as const] };
+// params：參數頁收自己送出的 set_params 結果（robot.cmdResult 只送到樓層房間與送出者本人）
+const WS_PERMS = { mode: 'any' as const, codes: [...ROBOT_PERMS.codes, 'sysalarm' as const, 'bizalarm' as const, 'captures' as const, 'records' as const, 'params' as const] };
 
 const Subscribe = z.object({ floors: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(10) });
 

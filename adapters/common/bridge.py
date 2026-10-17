@@ -245,9 +245,10 @@ class Bridge:
             if cmd.type == "set_params":
                 params = cmd.args["params"]
                 d.params = params
-                await d.apply_params(params)
-                log.info("%s 參數已更新（導航速度 %s m/s）", d.code, d.speed_limit())
-                await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="done"))
+                result = await d.apply_params(params)
+                log.info("%s 參數已更新：套用 %d 項、不支援 %d 項（導航速度 %s m/s）", d.code,
+                         len(result.get("applied", [])), len(result.get("ignored", [])), d.speed_limit())
+                await self._ack(d.code, Ack(ts=now_ms(), cmdId=cmd.cmdId, status="done", result=result))
                 return
             coro = d.execute(cmd)
             result = await (asyncio.wait_for(coro, cmd.timeoutSec) if cmd.timeoutSec else coro)

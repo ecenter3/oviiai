@@ -5,7 +5,7 @@ export interface TeleopRevoked {
   robotId: string;
   code: string;
   by: string;
-  reason: 'takeover' | 'estop';
+  reason: 'takeover' | 'estop' | 'idle';
   at: number;
 }
 export interface TeleopError {

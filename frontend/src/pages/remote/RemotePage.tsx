@@ -81,7 +81,7 @@ export function RemotePage() {
   const online = !!live?.online;
   const estop = live?.state === 'estop';
 
-  const tele = useTeleop(rid);
+  const tele = useTeleop(rid, () => row && useToast.getState().show(t('remote.idle.released', { code: row.code }), 'warn'));
   const held = tele.lock.s === 'held';
   const [panel, setPanel] = useState<'joy' | 'ptz' | null>(null);
   const [ptz, setPtz] = useState<Ptz>({ pan: 0, tilt: 0, zoom: 0 });
@@ -267,6 +267,14 @@ export function RemotePage() {
               </div>
 
               {!tele.connected && <div className="rwarn">{t('remote.disconnected')}</div>}
+              {held && tele.idleLeft !== null && (
+                <div className="rwarn idle" role="alert">
+                  {t('remote.idle.warn', { n: tele.idleLeft })}
+                  <button type="button" className="mini" onClick={tele.keepAlive}>
+                    {t('remote.idle.keep')}
+                  </button>
+                </div>
+              )}
 
               {panel === 'joy' && (
                 <div className="ctl" aria-label={t('remote.btn.joy')}>

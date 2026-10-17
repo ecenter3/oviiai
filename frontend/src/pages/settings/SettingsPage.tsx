@@ -261,6 +261,24 @@ export function SettingsPage() {
                 <b>{num('alarm.aiConfidence')}%</b>
               </div>
             </div>
+            <div className="toggle block">
+              <span className="txt">
+                <strong>{t('settings.teleopIdle')}</strong>
+                <span>{t('settings.teleopIdle.body')}</span>
+              </span>
+              <div className="conf-row">
+                <input
+                  type="range"
+                  min={60}
+                  max={1800}
+                  step={60}
+                  aria-label={t('settings.teleopIdle')}
+                  value={num('teleop.idleSec') || 300}
+                  onChange={(e) => set('teleop.idleSec', Number(e.target.value))}
+                />
+                <b>{t('settings.minutes', { n: Math.round((num('teleop.idleSec') || 300) / 60) })}</b>
+              </div>
+            </div>
           </section>
         </fieldset>
 

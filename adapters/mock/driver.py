@@ -11,7 +11,7 @@ import random
 from typing import Any
 
 from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop, now_ms
-from common.driver import CommandError, RobotDriver
+from common.driver import CommandError, RobotDriver, split_params
 from common.transform import Affine2D
 
 TICK_S = 0.1
@@ -32,6 +32,8 @@ class MockDriver(RobotDriver):
         self.yaw = 0.0
         self.battery = battery
         self.max_speed = speed
+        #: 設定檔的最高速度；參數「導航速度」只能往下調
+        self.base_speed = speed
         self.dock = dock or {"x": x, "y": y}
         self.fail_rate = fail_rate
         self.drain_per_m = drain_per_m
@@ -197,6 +199,12 @@ class MockDriver(RobotDriver):
             raise
         finally:
             self.task_ref = None
+
+    async def apply_params(self, params: dict[str, Any]) -> dict[str, list[str]]:
+        """模擬器：導航速度也套用到導航（真機要品牌 driver 實作才會生效），其他項目不支援"""
+        limit = self.speed_limit()
+        self.max_speed = min(self.base_speed, limit) if limit else self.base_speed
+        return split_params(params, {"walk.speed"})
 
     def is_estopped(self) -> bool:
         return self.state == "estop"

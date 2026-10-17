@@ -6,6 +6,7 @@ import type { FleetService } from '../fleet/fleet.service';
 import type { RobotRegistry } from '../fleet/robot-registry';
 import type { RobotInfo } from '../fleet/types';
 import type { MqttService } from '../mqtt/mqtt.service';
+import type { SettingsService } from '../settings/settings.service';
 import type { CommandBus } from './command-bus.service';
 import { CommandsService } from './commands.service';
 import type { TeleopHolder, TeleopLock } from './teleop-lock.service';
@@ -23,7 +24,7 @@ const user = (perms: string[], over: Partial<Principal> = {}): Principal => ({
   ...over,
 });
 
-function setup(opts: { online?: boolean; state?: string; holder?: TeleopHolder } = {}) {
+function setup(opts: { online?: boolean; state?: string; holder?: TeleopHolder; idleSec?: number } = {}) {
   const sent: { type: string; args: unknown; userId: string | null }[] = [];
   const revoked: { code: string; previous: TeleopHolder; by: string; reason: string }[] = [];
   const events$ = new Subject<unknown>();
@@ -54,7 +55,7 @@ function setup(opts: { online?: boolean; state?: string; holder?: TeleopHolder }
     },
     revoked$: { next: (m: (typeof revoked)[number]) => revoked.push(m) },
   } as unknown as TeleopLock;
-  const registry = { resolveId: async (id: string) => (id === ROBOT.id ? ROBOT : undefined) } as unknown as RobotRegistry;
+  const registry = { resolveId: async (id: string) => (id === ROBOT.id ? ROBOT : undefined), get: (c: string) => (c === ROBOT.code ? ROBOT : undefined) } as unknown as RobotRegistry;
   const fleet = {
     events$,
     get: () => (opts.online === false ? { online: false } : { online: true, state: opts.state ?? 'idle' }),
@@ -63,7 +64,8 @@ function setup(opts: { online?: boolean; state?: string; holder?: TeleopHolder }
     connected: true,
     publish: async (topic: string, body: string) => void published.push({ topic, body }),
   } as unknown as MqttService;
-  return { svc: new CommandsService(bus, lock, registry, fleet, mqtt), sent, published, revoked, events$, getHolder: () => holder };
+  const settings = { getNumber: async (_k: string, d: number) => opts.idleSec ?? d } as unknown as SettingsService;
+  return { svc: new CommandsService(bus, lock, registry, fleet, mqtt, settings), sent, published, revoked, events$, getHolder: () => holder };
 }
 
 async function code(p: Promise<unknown>) {
@@ -220,3 +222,46 @@ describe('急停與遙控鎖（PR #4 審查第 1、2 點）', () => {
     expect(MOTION.has('lift')).toBe(true);
   });
 });
+
+describe('遙控鎖閒置回收（PR #13 審查第 1 點）', () => {
+  const tele = (lockId: string, v: number) => ({ robotId: ROBOT.id, lockId, vx: v, vy: 0, wz: 0 });
+
+  it('連續 idleSec 只收到零速度：回收鎖、送 resume、teleop.revoked reason=idle', async () => {
+    const { svc, sent, revoked, getHolder } = setup({ idleSec: 300 });
+    const guard = user(['op.remote']);
+    const { lockId } = await svc.acquire(ROBOT.id, guard, false);
+    const t0 = Date.now();
+    expect(await svc.teleop(guard, tele(lockId, 0.5))).toBe('ok');
+    for (let i = 0; i < 3; i++) expect(await svc.teleop(guard, tele(lockId, 0))).toBe('ok'); // 續期用的零速度不算操作
+    await svc.sweepIdle(t0 + 299_000);
+    expect(getHolder()).toBeDefined();
+    await svc.sweepIdle(t0 + 301_000);
+    expect(getHolder()).toBeUndefined();
+    expect(sent.map((s) => s.type)).toEqual(['pause', 'resume']);
+    expect(revoked).toEqual([expect.objectContaining({ code: ROBOT.code, reason: 'idle', by: '系統', previous: expect.objectContaining({ userId: 'u1' }) })]);
+  });
+
+  it('有非零速度就重新起算；設定值可調', async () => {
+    const { svc, getHolder } = setup({ idleSec: 60 });
+    const guard = user(['op.remote']);
+    const { lockId } = await svc.acquire(ROBOT.id, guard, false);
+    const t0 = Date.now();
+    await svc.sweepIdle(t0 + 59_000);
+    expect(getHolder()).toBeDefined();
+    await svc.teleop(guard, tele(lockId, -0.3));
+    await svc.sweepIdle(Date.now() + 59_000);
+    expect(getHolder()).toBeDefined();
+    await svc.sweepIdle(Date.now() + 61_000);
+    expect(getHolder()).toBeUndefined();
+  });
+
+  it('已經手動歸還或被別人接管：不再追蹤、不誤發', async () => {
+    const { svc, revoked } = setup({ idleSec: 60 });
+    const guard = user(['op.remote']);
+    await svc.acquire(ROBOT.id, guard, false);
+    await svc.release(ROBOT.id, guard);
+    await svc.sweepIdle(Date.now() + 3_600_000);
+    expect(revoked).toEqual([]);
+  });
+});
+

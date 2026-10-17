@@ -9,6 +9,16 @@ from .contracts import Command, RobotEvent, Telemetry, Teleop
 from .transform import Affine2D
 
 
+def param_keys(params: dict[str, Any]) -> list[str]:
+    """{"walk": {"speed": 0.8}} -> ["walk.speed"]"""
+    return [f"{sub}.{k}" for sub, vals in params.items() if isinstance(vals, dict) for k in vals]
+
+
+def split_params(params: dict[str, Any], applied: set[str] | frozenset[str]) -> dict[str, list[str]]:
+    keys = param_keys(params)
+    return {"applied": [k for k in keys if k in applied], "ignored": [k for k in keys if k not in applied]}
+
+
 class CommandError(Exception):
     """指令執行失敗。code 會原樣放進 ack.error.code。"""
 
@@ -69,8 +79,18 @@ class RobotDriver(ABC):
         v = (self.params.get("walk") or {}).get("speed")
         return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
 
-    async def apply_params(self, params: dict[str, Any]) -> None:
-        """把參數套用到機器人。各品牌覆寫，只套用 SDK 支援的項目；預設不做事（只由共通層記住）。"""
+    #: 共通層自己會套用的參數（遙控限速），每個品牌都算「已套用」
+    COMMON_PARAMS: frozenset[str] = frozenset({"walk.speed"})
+
+    async def apply_params(self, params: dict[str, Any]) -> dict[str, list[str]]:
+        """把參數套用到機器人，回傳 {"applied": [...], "ignored": [...]}（"子系統.欄位"），放進 ack 的 result，
+        前端據此顯示「已套用 N 項，此機型不支援：…」（PR #13 審查第 2 點）。
+
+        各品牌覆寫：只套用 SDK 支援的項目，再用 split_params(params, 已套用的) 產生回傳值；
+        對照表寫在各品牌的 MAPPING.md。預設只有共通層的遙控限速（walk.speed）。
+        注意：導航時的速度上限要品牌實作才會生效，共通層只限制遙控。
+        """
+        return split_params(params, self.COMMON_PARAMS)
 
     # ---- 生命週期 ----
     @abstractmethod

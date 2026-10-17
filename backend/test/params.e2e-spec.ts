@@ -176,8 +176,8 @@ describe.skipIf(!ready)('機器人參數（e2e，T-27）', () => {
     const r = (await as(editor, http().post('/api/v1/robots/params/apply-floor')).send({ fromRobotId: robots[0].id, floorId: FLOOR, subsystem: 'walk' }).expect(200)).body;
     expect(r.updated).toBe(2);
     expect(r.results).toEqual([
-      { code: R(1), sync: 'sent' },
-      { code: R(2), sync: 'sent' },
+      { code: R(1), sync: 'sent', cmdId: expect.stringMatching(/^c_/) },
+      { code: R(2), sync: 'sent', cmdId: expect.stringMatching(/^c_/) },
     ]);
     const p2 = (await as(viewer, http().get(`/api/v1/robots/${robots[1].id}/params`)).expect(200)).body.params;
     expect(p2.walk).toMatchObject({ speed: 0.6, collide: 'safe' });
@@ -188,6 +188,19 @@ describe.skipIf(!ready)('機器人參數（e2e，T-27）', () => {
 
     await as(editor, http().post('/api/v1/robots/params/apply-floor')).send({ fromRobotId: robots[0].id, floorId: OTHER, subsystem: 'walk' }).expect(400);
     await as(viewer, http().post('/api/v1/robots/params/apply-floor')).send({ fromRobotId: robots[0].id, floorId: FLOOR, subsystem: 'walk' }).expect(403);
+  });
+
+  it('上線補送防抖：30 秒內反覆上下線只補送一次（PR #13 審查第 3 點）', async () => {
+    await online(R(2));
+    await new Promise((r) => setTimeout(r, 300));
+    cmds.length = 0;
+    for (let i = 0; i < 3; i++) {
+      await adapter.publishAsync(`rms/robot/${R(2)}/online`, JSON.stringify({ online: false, ts: Date.now() }), { qos: 1 });
+      await until(() => !app.get(FleetService).get(R(2))?.online);
+      await online(R(2));
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    expect(cmds.filter((c) => c.code === R(2) && c.type === 'set_params')).toEqual([]);
   });
 
   it('GET /robots：只有 remote 或 params 權限也能列出機器人（遙控頁、參數頁的選單）', async () => {

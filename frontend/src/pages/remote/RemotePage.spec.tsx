@@ -205,4 +205,32 @@ describe('實時遙控（T-30）', () => {
     await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/commands')).map((c) => c.body!.type)).toEqual(['follow', 'follow_stop']));
     expect(calls.find((c) => c.body?.type === 'follow')!.body!.args).toEqual({ personId: 'P-0001' });
   });
+
+  it('閒置：3 分鐘沒操作提示倒數，按「繼續遙控」重新起算；再閒置 3 分 30 秒自動歸還（PR #13 審查第 1 點）', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup();
+    await takeOver();
+    act(() => vi.advanceTimersByTime(179_000));
+    expect(screen.queryByRole('alert')).toBeNull();
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(screen.getByRole('alert').textContent).toMatch(/已閒置 3 分鐘，\d+ 秒後自動歸還遙控/);
+    fireEvent.click(screen.getByRole('button', { name: '繼續遙控' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    act(() => vi.advanceTimersByTime(211_000));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/teleop/release'))).toBe(true));
+    expect(screen.getByRole('application', { name: '移動搖桿' }).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('閒置計時：搖桿有動就重新起算', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup();
+    await takeOver();
+    const joy = screen.getByRole('application', { name: '移動搖桿' });
+    act(() => vi.advanceTimersByTime(170_000));
+    fireEvent.pointerDown(joy, { clientX: 0, clientY: -100 });
+    fireEvent.pointerUp(joy);
+    act(() => vi.advanceTimersByTime(170_000));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(calls.some((c) => c.url.endsWith('/teleop/release'))).toBe(false);
+  });
 });

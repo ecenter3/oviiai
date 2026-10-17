@@ -22,5 +22,9 @@ SDK 到手時要確認：上樁對接成功後回報哪個欄位表示充電中�
 - **燈光** `light {on, mode}`：`mode` 目前有 `alert`（警示燈光）、`fill`（補光燈），機型沒有的模式回 `failed`。
 - **跟隨** `follow {personId}`／`follow_stop`：personId 是人臉系統的人員編號。
 - **參數** `set_params {params}`：四個子系統的完整值（格式見 `packages/contracts/src/params.ts`），由共通層接收並存在 `driver.params`；
-  要套用到機器人時覆寫 `driver.apply_params(params)`，只套用 SDK 支援的項目。後端在儲存後與機器人上線時都會送一次。
+  要套用到機器人時覆寫 `driver.apply_params(params)`，只套用 SDK 支援的項目，並以 `split_params(params, 已套用的)` 回傳
+  `{"applied": [...], "ignored": [...]}`（`"子系統.欄位"`），共通層放進 ack 的 `result`，參數頁顯示「已套用 N 項，此機型不支援：…」。
+  哪些參數對應到 SDK 的哪個介面，寫在該品牌的 `MAPPING.md`（T-32、T-33、T-38）。
+  預設實作只有共通層的遙控限速（`walk.speed`）；**導航時的速度上限要品牌 driver 實作才會生效**。
+  後端在儲存後與機器人上線時都會送（上線補送 30 秒內最多一次）。
 - 前端與後端依資料庫 `robots.caps`（機器人管理）顯示按鈕，請與轉接器的 `capabilities` 保持一致（例：沒有雲台就不要勾 `ptz`）。
