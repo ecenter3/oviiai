@@ -153,6 +153,8 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
       task_id: next.taskId && UUID.test(next.taskId) ? next.taskId : null,
       rssi: next.rssi === null ? null : Math.round(next.rssi),
       speed: next.speed,
+      voltage: t.battery.voltage ?? null,
+      current: t.battery.current ?? null,
     });
     await this.save(next);
 

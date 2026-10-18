@@ -95,6 +95,8 @@ export interface TelemetryTable {
   task_id: string | null;
   rssi: number | null;
   speed: number | null;
+  voltage: number | null;
+  current: number | null;
 }
 
 export interface RobotStateLogTable {
