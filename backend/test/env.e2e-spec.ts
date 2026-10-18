@@ -77,7 +77,7 @@ describe.skipIf(!ready)('環境監測、定點檢測（T-41，e2e）', () => {
     process.env.JWT_SECRET ||= 'e2e-secret-e2e-secret-e2e-secret-0';
     process.env.COOKIE_SECURE = 'false';
     db = createDatabase();
-    await db.insertInto('floors').values({ id: FLOOR, name: `T41 ${FLOOR}`, sort: 99, width_m: 50, height_m: 40 }).execute();
+    await db.insertInto('floors').values({ id: FLOOR, name: `T41 ${FLOOR}`, sort: 99, width_m: '50', height_m: '40' }).execute();
     ids[GAS] = (await db.insertInto('robots').values({ code: GAS, brand: 'deep', model: 'X30', floor_id: FLOOR, adapter: `e2e-${tag}`, caps: ['env'] }).returning('id').executeTakeFirstOrThrow()).id;
     ids[PLAIN] = (await db.insertInto('robots').values({ code: PLAIN, brand: 'deep', model: 'X30', floor_id: FLOOR, adapter: `e2e-${tag}`, caps: [] }).returning('id').executeTakeFirstOrThrow()).id;
     poiId = (await db.insertInto('pois').values({ floor_id: FLOOR, name: `${tag} 配電室`, x: 20, y: 20 }).returning('id').executeTakeFirstOrThrow()).id;
