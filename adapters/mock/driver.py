@@ -15,7 +15,7 @@ import socket
 import struct
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Teleop, now_ms
 from common.driver import CommandError, RobotDriver, split_params
@@ -55,6 +55,22 @@ def download(url: str, limit: int = SPEAK_MAX_BYTES, timeout: float = 10.0) -> b
     return data
 
 
+def upload(url: str, data: bytes, content_type: str, timeout: float = 15.0) -> None:
+    """把檔案 PUT 到後端給的預簽名網址（日誌上傳）"""
+    if not url.startswith(("http://", "https://")):
+        raise CommandError("BAD_ARGS", "url must be http(s)")
+    req = Request(url, data=data, method="PUT", headers={"Content-Type": content_type})
+    try:
+        with urlopen(req, timeout=timeout) as r:  # noqa: S310 — 只接受 http(s)，網址由後端簽發
+            r.read()
+    except OSError as e:
+        raise CommandError("UPLOAD_FAILED", f"log upload failed: {e}") from e
+
+
+#: 日誌子系統（後端 robot_logs.subsystem）
+LOG_SUBSYSTEMS = ("motion", "video", "interaction", "system")
+
+
 def talk_url(url: str, user: str, token: str) -> str:
     """rtsp://主機/talk/B2-001 → rtsp://talk:<token>@<IP>/talk/B2-001。
     主機名稱先解析成 IP：靜態編譯的 ffmpeg 自己解析名稱會當掉（同後端 media/ffmpeg.ts）"""
@@ -71,7 +87,7 @@ def talk_url(url: str, user: str, token: str) -> str:
 class MockDriver(RobotDriver):
     capabilities = frozenset({"navigate", "patrol", "stop", "pause", "resume", "charge", "estop",
                               "estop_release", "snapshot", "ptz", "light", "follow", "follow_stop",
-                              "speak", "talk_start", "talk_stop"})
+                              "speak", "talk_start", "talk_stop", "show_image", "upload_logs"})
 
     def __init__(self, code: str, floor: str, x: float = 0.0, y: float = 0.0, battery: float = 80.0,
                  speed: float = 1.0, dock: dict[str, float] | None = None, fail_rate: float = 0.0,
@@ -110,6 +126,8 @@ class MockDriver(RobotDriver):
         self._talk_task: asyncio.Task | None = None
         #: 按鍵說話、文字語音：記錄收到的內容
         self.spoken: list[dict[str, Any]] = []
+        #: 螢幕上顯示的警示圖（show_image；模擬器只記錄）
+        self.screen: dict[str, Any] | None = None
         if teleop:
             self.capabilities = self.capabilities | {"teleop"}
 
@@ -178,6 +196,11 @@ class MockDriver(RobotDriver):
         if cmd.type == "talk_start" and not (cmd.args.get("url") and cmd.args.get("token")):
             raise CommandError("BAD_ARGS", "talk_start requires url and token")
         audio = cmd.args.get("audio")
+        image = cmd.args.get("image")
+        if cmd.type == "show_image" and not (isinstance(image, dict) and image.get("url")):
+            raise CommandError("BAD_ARGS", "show_image requires image.url")
+        if cmd.type == "upload_logs" and (cmd.args.get("subsystem") not in LOG_SUBSYSTEMS or not cmd.args.get("url")):
+            raise CommandError("BAD_ARGS", "upload_logs requires subsystem and url")
         if cmd.type == "speak" and not (cmd.args.get("text") or (isinstance(audio, dict) and audio.get("url"))):
             raise CommandError("BAD_ARGS", "speak requires text or audio.url")
 
@@ -257,6 +280,18 @@ class MockDriver(RobotDriver):
             return {"receiving": True}
         if t == "talk_stop":
             return await self._talk_stop()
+        if t == "show_image":
+            img = cmd.args["image"]
+            data = await asyncio.to_thread(download, str(img["url"]))
+            self.screen = {"mime": img.get("mime"), "bytes": len(data), "seconds": cmd.args.get("seconds")}
+            log.info("%s 螢幕顯示警示圖：%s、%d bytes（模擬器只記錄）", self.code, img.get("mime"), len(data))
+            return {"shown": True}
+        if t == "upload_logs":
+            sub = str(cmd.args["subsystem"])
+            body = self._fake_log(sub).encode("utf-8")
+            await asyncio.to_thread(upload, str(cmd.args["url"]), body, "text/plain; charset=utf-8")
+            log.info("%s 已上傳 %s 日誌 %d bytes", self.code, sub, len(body))
+            return {"bytes": len(body)}
 
         self.task_ref = cmd.cmdId
         self._go.set()  # 新的移動指令取代暫停中的舊導航
@@ -293,6 +328,12 @@ class MockDriver(RobotDriver):
         limit = self.speed_limit()
         self.max_speed = min(self.base_speed, limit) if limit else self.base_speed
         return split_params(params, {"walk.speed"})
+
+    def _fake_log(self, sub: str) -> str:
+        """模擬的日誌內容：目前狀態與最近幾筆說話紀錄（真機轉接器上傳機器人的日誌檔）"""
+        lines = [f"# {self.code} {sub} log (mock)", f"ts={now_ms()} state={self.state} battery={self.battery:.1f} x={self.x:.2f} y={self.y:.2f}"]
+        lines += [f"spoken {i}: {item}" for i, item in enumerate(self.spoken[-5:])]
+        return "\n".join(lines) + "\n"
 
     async def _speak(self, args: dict[str, Any]) -> dict[str, Any]:
         if isinstance(args.get("audio"), dict):
