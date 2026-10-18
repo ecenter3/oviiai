@@ -473,6 +473,7 @@ export const zhTW = {
   'cap.light': '燈光',
   'cap.talk': '語音播放（按鍵說話）',
   'cap.talk_live': '即時對講',
+  'cap.screen': '螢幕（警示圖）',
   'cap.follow': '跟隨',
   'cap.lift': '升降',
   'cap.env': '環境感測',

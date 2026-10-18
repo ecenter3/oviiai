@@ -30,6 +30,9 @@ import { StorageModule } from './storage/storage.module';
 // face, reports, integrations
 import { ReportsModule } from './reports/reports.module';
 import { StatsModule } from './stats/stats.module';
+import { AssetsModule } from './assets/assets.module';
+import { RobotLogsModule } from './robot-logs/robot-logs.module';
+import { VersionsModule } from './versions/versions.module';
 
 @Module({
   imports: [
@@ -59,6 +62,9 @@ import { StatsModule } from './stats/stats.module';
     MaintenanceModule,
     ReportsModule,
     StatsModule,
+    AssetsModule,
+    RobotLogsModule,
+    VersionsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

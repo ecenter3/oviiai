@@ -23,6 +23,8 @@ export interface RetentionResult {
   media: number;
   /** 按鍵說話殘留的暫存音檔（正常是指令結束就刪） */
   speak: number;
+  /** 機器人日誌（T-42）保存 30 天 */
+  robotLogs: number;
   files: string[];
 }
 
@@ -162,6 +164,11 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       this.log.log(`清除超過保存期限：告警 ${alarms.length}、任務 ${tasks.length}、操作日誌 ${logs.length}、抓拍錄影 ${media.length} 筆，備查檔：${files.join('、')}`);
     }
     if (speak.length) this.log.log(`清除殘留的按鍵說話音檔 ${speak.length} 個`);
-    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, media: media.length, speak: speak.length, files };
+
+    // 機器人日誌（T-42）：30 天，連同檔案
+    const robotLogs = await this.db.deleteFrom('robot_logs').where('created_at', '<', new Date(now.getTime() - 30 * 86_400_000)).returning('object_key').execute();
+    for (const r of robotLogs) await this.storage.remove(r.object_key).catch(() => undefined);
+    if (robotLogs.length) this.log.log(`清除 30 天前的機器人日誌 ${robotLogs.length} 筆`);
+    return { alarms: alarms.length, oplogs: logs.length, tasks: tasks.length, media: media.length, speak: speak.length, robotLogs: robotLogs.length, files };
   }
 }

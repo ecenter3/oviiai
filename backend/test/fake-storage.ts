@@ -35,6 +35,15 @@ export class FakeStorage {
     return `http://${host}/${key}?signed=1&ttl=${opts.ttlSec ?? 300}${opts.filename ? `&dl=${encodeURIComponent(opts.filename)}` : ''}`;
   }
 
+  /** 測試直接用 put() 模擬轉接器上傳 */
+  async presignPut(key: string, opts: { ttlSec?: number } = {}) {
+    return `http://fake-s3-adapter/${key}?put=1&ttl=${opts.ttlSec ?? 900}`;
+  }
+
+  async size(key: string) {
+    return this.objects.get(key)?.body.length ?? null;
+  }
+
   async list(prefix: string) {
     return [...this.objects].filter(([k]) => k.startsWith(prefix)).map(([key, o]) => ({ key, lastModified: o.at }));
   }
