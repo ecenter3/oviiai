@@ -3,6 +3,34 @@
 工程開發手冊「測試與部署」§3～§5 是部署流程；這份補充安全與資料保存的設定，部署前逐項確認。
 （T-4x 部署工作時併入完整部署文件。）
 
+## 0. 開機順序與自動重啟（PR #17 審查）
+轉接器的 MQTT 憑證只有 1 小時效期，而且要向後端取（第 10 節）：EMQX 重啟、網路中斷或伺服器重開後，**轉接器要等後端能回應才連得回 MQTT**。所以：
+
+1. **順序：資料庫（PostgreSQL、Redis）→ EMQX、S3 → 後端 → 轉接器**。後端起來前轉接器會一直重試（每 3 秒），不會壞，但機器人這段期間不在線上。
+2. **後端要有健康檢查與自動重啟**：
+   - 健康檢查打 `GET /api/v1/health`（不需登入），`checks.db` 為 `ok` 才算健康（其他項目是 `degraded`，不影響轉接器取憑證）。
+   - compose 範例：
+     ```yaml
+     api:
+       restart: unless-stopped
+       depends_on:
+         db: { condition: service_healthy }
+         redis: { condition: service_started }
+         emqx: { condition: service_healthy }
+       healthcheck:
+         test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>r.json()).then(j=>process.exit(j.checks.db==='ok'?0:1)).catch(()=>process.exit(1))"]
+         interval: 10s
+         timeout: 5s
+         retries: 3
+         start_period: 30s
+     adapter-anbot:
+       restart: unless-stopped
+       depends_on:
+         api: { condition: service_healthy }
+     ```
+   - Docker 的 `restart` 只在程序結束時重啟，**健康檢查失敗不會自動重啟**：要搭配 autoheal 之類的看門狗，或用 systemd（`Restart=always`、`ExecStartPre` 等待資料庫），並把 `/health` 異常接到系統告警（手冊 07 §5）。
+3. 伺服器重開後全部服務自動啟動（`restart: unless-stopped`）；後端恢復後，轉接器 10 秒內拿到新憑證並連回來。
+
 ## 1. 秘密與加密金鑰
 
 | 環境變數 | 規則 | 不符合時 |
@@ -11,7 +39,9 @@
 | `DATA_ENC_KEY` | ≥ 32 字元（`openssl rand -base64 48`） | 正式環境拒絕啟動 |
 | `ADAPTER_KEY_<名稱>` | ≥ 16 字元（`openssl rand -hex 24`），每個轉接器一把 | 該轉接器取不到設定 |
 | `EMQX_JWT_SECRET` | ≥ 32 字元（`openssl rand -hex 32`），EMQX 與後端設同一把（第 10 節） | 正式環境拒絕啟動；轉接器連不上 MQTT |
-| `EMQX_API_SECRET` | `openssl rand -hex 24`，EMQX 的 API 金鑰檔用同一把（第 10 節） | 機器人改派時無法立即踢掉舊轉接器 |
+| `EMQX_API_SECRET` | `openssl rand -hex 24`，EMQX 的 API 金鑰檔用同一把（第 10 節）。**等同 EMQX 管理員**：可改設定、看與踢所有連線 | 機器人改派時無法立即踢掉舊轉接器 |
+
+以上秘密（含 `EMQX_JWT_SECRET`、`EMQX_API_SECRET`）**只放伺服器上的 `.env`**（權限 600、只有部署帳號可讀），不進版控、不貼在工單或聊天裡；EMQX 的 API 金鑰檔（`api_key.bootstrap_file`）同樣 600。外洩時兩把都要換，換法見第 10 節（EMQX 與後端一起改、一起重啟）。
 
 ### `DATA_ENC_KEY` 的保管（PR #10 審查第 4 點）
 - 攝影機 RTSP 帳密、機器人連線密碼以這把金鑰（pgcrypto `pgp_sym_encrypt`）加密存放。**金鑰遺失 = 所有密碼無法解密**，只能逐台重新輸入。
