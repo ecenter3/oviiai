@@ -12,6 +12,8 @@ import { RolesPage } from './pages/admin/RolesPage';
 import { EnergyPage } from './pages/reports/EnergyPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
 import { RunlogPage } from './pages/reports/RunlogPage';
+import { StatsPage } from './pages/reports/StatsPage';
+import { HistoryPage } from './pages/reports/HistoryPage';
 import { CapturesPage, RecordsPage } from './pages/media/MediaPages';
 import { NavPage } from './pages/nav/NavPage';
 import { AlarmSettingsPage } from './pages/alarms/AlarmSettingsPage';
@@ -39,6 +41,8 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/energy': EnergyPage,
   '/reports': ReportsPage,
   '/runlog': RunlogPage,
+  '/stats': StatsPage,
+  '/history': HistoryPage,
   '/maps': MapsPage,
   '/nav': NavPage,
   '/captures': CapturesPage,

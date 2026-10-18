@@ -258,6 +258,42 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     return { items: await Promise.all(rows.map((r) => this.view(r))), total: Number(total.n), page, size };
   }
 
+  /**
+   * 歷史視頻（T-40）：某台機器人或攝影機在時間範圍內的錄影片段、抓拍與告警時間點。本平台只有手動錄影、
+   * 告警與巡邏觸發的片段（不做全天候錄影），時間軸只畫有的部分。最多一天、每種最多 500 筆。
+   */
+  async history(f: { robot?: string; camera?: string; from: Date; to: Date }) {
+    if (!f.robot === !f.camera) throw new AppError('VALIDATION_FAILED', '請選擇一台機器人或一支攝影機');
+    if (!(f.to > f.from) || f.to.getTime() - f.from.getTime() > 2 * 86400_000) throw new AppError('VALIDATION_FAILED', '時間範圍最多 2 天', { fields: { to: '範圍不正確' } });
+    const col = f.robot ? 'robot_id' : 'camera_id';
+    const id = (f.robot ?? f.camera)!;
+    // 錄影：開始時間在範圍內，或開始得早（最多往前 3 小時）但延續到範圍內
+    const clipQ = this.base()
+      .where('m.kind', '=', 'clip')
+      .where(`m.${col}`, '=', id)
+      .where('m.created_at', '<', f.to)
+      .where('m.created_at', '>=', new Date(f.from.getTime() - 3 * 3600_000))
+      .orderBy('m.created_at')
+      .limit(500);
+    const snapQ = this.base().where('m.kind', '=', 'snapshot').where(`m.${col}`, '=', id).where('m.created_at', '>=', f.from).where('m.created_at', '<', f.to).orderBy('m.created_at').limit(500);
+    const alarmQ = this.db
+      .selectFrom('alarms as a')
+      .select(['a.id', 'a.code', 'a.type', 'a.category', 'a.level', 'a.message', 'a.status', 'a.occurred_at'])
+      .where(`a.${col}`, '=', id)
+      .where('a.occurred_at', '>=', f.from)
+      .where('a.occurred_at', '<', f.to)
+      .orderBy('a.occurred_at')
+      .limit(500);
+    const [clips, snaps, alarms] = await Promise.all([clipQ.execute(), snapQ.execute(), alarmQ.execute()]);
+    const views = await Promise.all([...clips, ...snaps].map((r) => this.view(r)));
+    const endOf = (v: MediaView) => new Date(v.createdAt).getTime() + (v.durationS ?? 0) * 1000;
+    return {
+      clips: views.filter((v) => v.kind === 'clip' && endOf(v) > f.from.getTime()),
+      snapshots: views.filter((v) => v.kind === 'snapshot'),
+      alarms: alarms.map((a) => ({ id: a.id, code: a.code, type: a.type, category: a.category, level: a.level, message: a.message, status: a.status, at: a.occurred_at.toISOString() })),
+    };
+  }
+
   async downloadUrl(id: string, download: boolean): Promise<{ url: string; kind: MediaKind }> {
     const v = await this.get(id);
     const ext = v.kind === 'clip' ? 'mp4' : 'jpg';

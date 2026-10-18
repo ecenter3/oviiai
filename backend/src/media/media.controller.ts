@@ -27,8 +27,16 @@ const DeleteBody = z.object({ ids: z.array(z.string().uuid()).min(1).max(200) })
 
 /** 抓拍看「抓拍圖片」權限、錄影看「錄像回放」權限 */
 const PAGE: Record<MediaKind, 'captures' | 'records'> = { snapshot: 'captures', clip: 'records' };
+/** 看得到這種檔案：抓拍要 captures、錄像要 records；歷史視頻（history）兩種都能看 */
+const HistoryQuery = z.object({
+  robot: z.string().uuid().optional(),
+  camera: z.string().uuid().optional(),
+  from: z.string().datetime({ offset: true }).transform((v) => new Date(v)),
+  to: z.string().datetime({ offset: true }).transform((v) => new Date(v)),
+});
+
 function checkKind(user: Principal, kind: MediaKind) {
-  if (!user.perms.includes(PAGE[kind])) throw new AppError('FORBIDDEN', '沒有權限');
+  if (!user.perms.includes(PAGE[kind]) && !user.perms.includes('history')) throw new AppError('FORBIDDEN', '沒有權限');
 }
 const target = (req: Request, res?: unknown) => `media:${String(req.params.id ?? (res as { id?: string } | undefined)?.id ?? '')}`;
 
@@ -47,9 +55,9 @@ export class MediaController {
     return this.media.snapshot(b.streamKey, user.sub);
   }
 
-  /** 篩選欄的選項（抓拍、錄像頁的使用者不一定有 robots、monitor 權限） */
+  /** 篩選欄的選項（抓拍、錄像、歷史視頻頁的使用者不一定有 robots、monitor 權限） */
   @Get('options')
-  @RequireAnyPerm('captures', 'records')
+  @RequireAnyPerm('captures', 'records', 'history')
   options() {
     return this.media.options();
   }
@@ -83,9 +91,16 @@ export class MediaController {
     return this.media.list({ kind: q.kind, robot: q.robot, camera: q.camera, floor: q.floor, source: q.source, from: q.from, to: q.to }, q.page, q.size);
   }
 
+  /** 歷史視頻（T-40）：`?robot|camera&from&to`，錄影片段、抓拍、告警時間點（各附 5 分鐘預簽名網址） */
+  @Get('history')
+  @RequirePerm('history')
+  history(@Query(new ZodPipe(HistoryQuery)) q: z.infer<typeof HistoryQuery>) {
+    return this.media.history(q);
+  }
+
   /** 介面規格 GET /media/:id/url：5 分鐘預簽名網址；?download=1 以附件下載 */
   @Get(':id/url')
-  @RequireAnyPerm('captures', 'records')
+  @RequireAnyPerm('captures', 'records', 'history')
   async url(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodPipe(UrlQuery)) q: z.infer<typeof UrlQuery>, @CurrentUser() user: Principal) {
     checkKind(user, await this.media.kindOf(id));
     return { url: (await this.media.downloadUrl(id, q.download === '1')).url };
