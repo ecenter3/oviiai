@@ -61,6 +61,12 @@ EMQX 不接受匿名連線（`docs/deploy.md` 第 10 節）：後端用 `EMQX_JW
 **已知的開發環境問題**：Windows 上的 Chrome 開 `http://localhost:5173`，收超過約 50 KB 的回應（例：平面圖）會卡住收不完；直接連後端 `localhost:3000` 或正式環境的 Nginx 不會。疑似 WSL2 mirrored 網路的 MTU 問題，可試：
 - 改開 `http://127.0.0.1:5173`（2026-10-16 在開發筆電試過，**沒有改善**）
 - `.wslconfig` 加上 `[experimental]` → `hostAddressLoopback=true`，再 `wsl --shutdown` 重開（尚未試；需要重開 WSL）
+- 2026-10-18 實測：經 Vite 開發伺服器（5173）的代理，約 21 KB 的回應（歷史視頻一天的清單）也會卡住。**繞過方法**：前端 `npm run build`，用 Docker 起一個 nginx 服務 `frontend/dist` 並代理 `/api`、`/ws` 到 `host.docker.internal:3000`（同正式環境的架構），Windows Chrome 開 `http://localhost:8080` 就正常：
+  ```bash
+  cd frontend && npm run build && cd ..
+  docker run -d --name oviiai-nginx -p 8080:80 --add-host host.docker.internal:host-gateway \
+    -v "$PWD/frontend/dist:/usr/share/nginx/html:ro" -v "$PWD/infra/nginx/dev-proxy.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine
+  ```
 
 ## 4. 連真機器人
 | 品牌 | 筆電要做的事 |

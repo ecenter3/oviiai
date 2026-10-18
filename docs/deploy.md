@@ -3,6 +3,34 @@
 工程開發手冊「測試與部署」§3～§5 是部署流程；這份補充安全與資料保存的設定，部署前逐項確認。
 （T-4x 部署工作時併入完整部署文件。）
 
+## 0. 開機順序與自動重啟（PR #17 審查）
+轉接器的 MQTT 憑證只有 1 小時效期，而且要向後端取（第 10 節）：EMQX 重啟、網路中斷或伺服器重開後，**轉接器要等後端能回應才連得回 MQTT**。所以：
+
+1. **順序：資料庫（PostgreSQL、Redis）→ EMQX、S3 → 後端 → 轉接器**。後端起來前轉接器會一直重試（每 3 秒），不會壞，但機器人這段期間不在線上。
+2. **後端要有健康檢查與自動重啟**：
+   - 健康檢查打 `GET /api/v1/health`（不需登入），`checks.db` 為 `ok` 才算健康（其他項目是 `degraded`，不影響轉接器取憑證）。
+   - compose 範例：
+     ```yaml
+     api:
+       restart: unless-stopped
+       depends_on:
+         db: { condition: service_healthy }
+         redis: { condition: service_started }
+         emqx: { condition: service_healthy }
+       healthcheck:
+         test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>r.json()).then(j=>process.exit(j.checks.db==='ok'?0:1)).catch(()=>process.exit(1))"]
+         interval: 10s
+         timeout: 5s
+         retries: 3
+         start_period: 30s
+     adapter-anbot:
+       restart: unless-stopped
+       depends_on:
+         api: { condition: service_healthy }
+     ```
+   - Docker 的 `restart` 只在程序結束時重啟，**健康檢查失敗不會自動重啟**：要搭配 autoheal 之類的看門狗，或用 systemd（`Restart=always`、`ExecStartPre` 等待資料庫），並把 `/health` 異常接到系統告警（手冊 07 §5）。
+3. 伺服器重開後全部服務自動啟動（`restart: unless-stopped`）；後端恢復後，轉接器 10 秒內拿到新憑證並連回來。
+
 ## 1. 秘密與加密金鑰
 
 | 環境變數 | 規則 | 不符合時 |
@@ -11,7 +39,9 @@
 | `DATA_ENC_KEY` | ≥ 32 字元（`openssl rand -base64 48`） | 正式環境拒絕啟動 |
 | `ADAPTER_KEY_<名稱>` | ≥ 16 字元（`openssl rand -hex 24`），每個轉接器一把 | 該轉接器取不到設定 |
 | `EMQX_JWT_SECRET` | ≥ 32 字元（`openssl rand -hex 32`），EMQX 與後端設同一把（第 10 節） | 正式環境拒絕啟動；轉接器連不上 MQTT |
-| `EMQX_API_SECRET` | `openssl rand -hex 24`，EMQX 的 API 金鑰檔用同一把（第 10 節） | 機器人改派時無法立即踢掉舊轉接器 |
+| `EMQX_API_SECRET` | `openssl rand -hex 24`，EMQX 的 API 金鑰檔用同一把（第 10 節）。**等同 EMQX 管理員**：可改設定、看與踢所有連線 | 機器人改派時無法立即踢掉舊轉接器 |
+
+以上秘密（含 `EMQX_JWT_SECRET`、`EMQX_API_SECRET`）**只放伺服器上的 `.env`**（權限 600、只有部署帳號可讀），不進版控、不貼在工單或聊天裡；EMQX 的 API 金鑰檔（`api_key.bootstrap_file`）同樣 600。外洩時兩把都要換，換法見第 10 節（EMQX 與後端一起改、一起重啟）。
 
 ### `DATA_ENC_KEY` 的保管（PR #10 審查第 4 點）
 - 攝影機 RTSP 帳密、機器人連線密碼以這把金鑰（pgcrypto `pgp_sym_encrypt`）加密存放。**金鑰遺失 = 所有密碼無法解密**，只能逐台重新輸入。
@@ -145,3 +175,14 @@ authorization {
 - **沒有權限（403）會寫進操作日誌** `auth.forbidden`：對象是路由（例 `GET /api/v1/users/:id`），內容有實際路徑與缺少的權限。同一人同一路由 1 分鐘內只記一筆。
 - **角色管理**：不能改名、修改、刪除權限比自己高的角色；系統角色只有系統管理員能動。場域匯入時，修改既有角色也受同樣限制。
 - **閒置自動登出**：預設 30 分鐘沒有滑鼠、鍵盤、觸控就登出（「派工與充電規則」頁可改 10 分鐘～8 小時）。需要一直顯示的電腦（控制室大螢幕）用專用帳號，該帳號的角色在「角色管理」勾「不自動登出」（PR #16 審查第 1 點）；全站沒有「不自動登出」。這是登入政策，不隨場域設定包匯出入（角色的「不自動登出」也不匯出，換場域後要重新勾）。
+
+## 12. 數據統計、歷史視頻（T-40）
+- **每日統計**：每天台北時間 00:15 排程把前一天每台機器人的里程、各狀態時長算好存進 `robot_daily_stats`；查詢時缺的日子會補算（第一次查很久以前的期間會慢一點）。今天的即時計算。遙測只保存 90 天，超過 90 天的日子若沒算過就沒有里程。
+- **稼動率**＝任務時長（巡邏、導航、返航、遙控）÷ 有狀態紀錄的時間；**可用率**＝扣掉離線、故障急停後的比例。
+- **匯出 Excel**：總覽、每日、各機器人三張工作表。原型的「群發郵件」需要郵件伺服器，目前不做。
+- **歷史視頻**：本平台不做全天候錄影，時間軸只顯示手動錄影、告警與巡邏觸發的片段與抓拍（保存期限見第 5 節）；有 `history` 權限即可看與下載。
+
+## 13. 音視頻管理、日誌管理、版本管理（T-42）
+- **音視頻管理**（權限 `media`；推送另要 `op.remote`）：喊話音檔（mp3、wav、ogg、webm、m4a、aac，10 MB）、警示圖（png、jpg、gif、webp，5 MB）放物件儲存 `assets/`，不自動刪除；詞條 200 字。推送時轉接器拿 5 分鐘預簽名網址下載（`S3_ADAPTER_ENDPOINT`，第 9 節）。警示圖只推給勾了「螢幕」能力的機器人（指令 `show_image`）。
+- **日誌管理**（權限 `logs`）：後端給轉接器 15 分鐘的預簽名 PUT 網址（指令 `upload_logs`），轉接器要能連到 S3（同按鍵說話）。日誌保存 30 天，每日保存期限排程連同檔案刪除。
+- **版本管理**（權限 `versions`）：後端版本取環境變數 `VERSION`（沒設用 package.json），可另設 `GIT_SHA`；前端版本在建置時寫入（`VERSION` 或 package.json）。轉接器版本來自心跳。機器人韌體版本與韌體推送要等各家 SDK。

@@ -16,7 +16,8 @@ import { OpLog } from '../oplog/oplog.decorator';
 /** 品牌是資料值（資料庫 CHECK 限定這三個）；能力清單決定畫面上的功能，不做品牌判斷 */
 export const BRANDS = ['anbot', 'unitree', 'deep'] as const;
 /** talk：能播放音檔（對講方案 B，按鍵說話）；talk_live：能接收即時音訊串流（方案 A）。T-31 */
-export const CAPS = ['ptz', 'light', 'talk', 'talk_live', 'follow', 'lift', 'env'] as const;
+/** screen：有螢幕，可顯示警示圖（T-42 音視頻管理） */
+export const CAPS = ['ptz', 'light', 'talk', 'talk_live', 'follow', 'lift', 'env', 'screen'] as const;
 
 export const Conn = z
   .object({

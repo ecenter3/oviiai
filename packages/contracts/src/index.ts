@@ -46,6 +46,8 @@ export const CommandType = z.enum([
   'follow_stop', 'set_params', 'lift',
   // 雙向對講方案 A（T-31）：轉接器從 MediaMTX 拉 talk/{robotCode} 的音訊送到機器人喇叭
   'talk_start', 'talk_stop',
+  // T-42：在機器人螢幕顯示警示圖（預簽名網址）；把日誌上傳到後端給的預簽名 PUT 網址
+  'show_image', 'upload_logs',
 ]);
 export type CommandType = z.infer<typeof CommandType>;
 

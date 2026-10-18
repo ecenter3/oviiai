@@ -1,4 +1,4 @@
-import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
@@ -37,6 +37,8 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
     endpoint: process.env.S3_ADAPTER_ENDPOINT || process.env.S3_ENDPOINT || 'http://localhost:8333',
     region: process.env.S3_REGION || 'us-east-1',
     forcePathStyle: true,
+    // 預簽名 PUT（日誌上傳）：SDK 預設把「空內容」的 checksum 簽進網址，轉接器上傳實際內容時 SeaweedFS 回 400 BadDigest（實測）
+    requestChecksumCalculation: 'WHEN_REQUIRED',
     credentials: { accessKeyId: process.env.S3_ACCESS_KEY || '', secretAccessKey: process.env.S3_SECRET_KEY || '' },
   });
   private ready: Promise<void> | null = null;
@@ -62,6 +64,23 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
       ...(opts.filename && { ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(opts.filename)}` }),
     });
     return getSignedUrl(opts.for === 'adapter' ? this.adapterS3 : this.publicS3, cmd, { expiresIn: opts.ttlSec ?? 300 });
+  }
+
+  /** 給轉接器上傳用的預簽名 PUT 網址（日誌上傳；T-42），簽在轉接器連得到的位址 */
+  async presignPut(key: string, opts: { ttlSec?: number; contentType?: string } = {}): Promise<string> {
+    await this.ready;
+    const cmd = new PutObjectCommand({ Bucket: this.bucket, Key: key, ...(opts.contentType && { ContentType: opts.contentType }) });
+    return getSignedUrl(this.adapterS3, cmd, { expiresIn: opts.ttlSec ?? 900 });
+  }
+
+  /** 物件大小；不存在回 null */
+  async size(key: string): Promise<number | null> {
+    try {
+      const r = await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return r.ContentLength ?? 0;
+    } catch {
+      return null;
+    }
   }
 
   async put(key: string, body: Buffer | string, contentType: string): Promise<void> {

@@ -60,3 +60,7 @@ EMQX 不接受匿名連線。轉接器以 `ADAPTER_KEY_<名稱>` 呼叫 `GET /ad
 
 ## 電池電壓、電流（所有轉接器；T-39 能耗管理）
 遙測 `battery.voltage`（伏特）、`battery.current`（安培，充電為正、放電為負）是選填。SDK 有提供就填，能耗管理頁才畫得出電壓、電流曲線；沒有就不填（電量與耗電量照常顯示）。
+
+## 警示圖、日誌上傳（所有轉接器；T-42）
+- `show_image {image: {url, mime, bytes}, seconds?}`：從預簽名網址（5 分鐘）下載圖片顯示在機器人螢幕 `seconds` 秒；機器人管理要勾「螢幕」能力才會收到。
+- `upload_logs {subsystem: motion|video|interaction|system, url}`：把該子系統的日誌（文字或壓縮檔）以 HTTP PUT 上傳到 `url`（15 分鐘有效），完成回 `done`，失敗回 `failed` 並附原因。模擬器的做法見 `mock/driver.py`。

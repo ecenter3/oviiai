@@ -364,3 +364,47 @@ async def test_mock_talk_reports_failure_when_stream_breaks(setup, monkeypatch, 
     await d._talk_rx("rtsp://talk:tok@127.0.0.1:8554/talk/B2-001")
     ev = d.events.get_nowait()
     assert ev.type == "talk_failed" and "401" in ev.data["reason"]
+
+
+async def test_mock_show_image_and_upload_logs(setup):
+    """T-42：警示圖從預簽名網址下載後顯示；日誌 PUT 到後端給的預簽名網址"""
+    import http.server
+    import threading
+
+    img = b"\x89PNG" + b"\x00" * 200
+    uploaded: dict[str, bytes] = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(img)))
+            self.end_headers()
+            self.wfile.write(img)
+
+        def do_PUT(self):  # noqa: N802
+            uploaded[self.path] = self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *_a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        b, d = setup
+        base = f"http://127.0.0.1:{srv.server_port}"
+        await b.on_message("rms/robot/B2-001/cmd", cmd("i1", "show_image", image={"url": f"{base}/a.png?sig=1", "mime": "image/png", "bytes": 204}, seconds=30))
+        await b.on_message("rms/robot/B2-001/cmd", cmd("l1", "upload_logs", subsystem="motion", url=f"{base}/robot-logs/x.log?sig=1"))
+        await asyncio.wait_for(asyncio.gather(*list(b._side)), 3)
+        assert d.screen == {"mime": "image/png", "bytes": 204, "seconds": 30}
+        assert uploaded["/robot-logs/x.log?sig=1"].startswith(b"# B2-001 motion log")
+        assert ("i1", "done", None) in b.acks() and ("l1", "done", None) in b.acks()
+        await b.on_message("rms/robot/B2-001/cmd", cmd("l2", "upload_logs", subsystem="kernel", url=f"{base}/x"))
+        assert ("l2", "rejected", "BAD_ARGS") in b.acks()
+        await b.on_message("rms/robot/B2-001/cmd", cmd("l3", "upload_logs", subsystem="video", url="http://127.0.0.1:1/x"))
+        await asyncio.wait_for(asyncio.gather(*list(b._side)), 5)
+        assert ("l3", "failed", "UPLOAD_FAILED") in b.acks()
+    finally:
+        srv.shutdown()

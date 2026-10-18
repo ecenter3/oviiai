@@ -29,6 +29,10 @@ import { StorageModule } from './storage/storage.module';
 // 模組依工程開發手冊「後端」章節逐步加入：
 // face, reports, integrations
 import { ReportsModule } from './reports/reports.module';
+import { StatsModule } from './stats/stats.module';
+import { AssetsModule } from './assets/assets.module';
+import { RobotLogsModule } from './robot-logs/robot-logs.module';
+import { VersionsModule } from './versions/versions.module';
 
 @Module({
   imports: [
@@ -57,6 +61,10 @@ import { ReportsModule } from './reports/reports.module';
     MediaModule,
     MaintenanceModule,
     ReportsModule,
+    StatsModule,
+    AssetsModule,
+    RobotLogsModule,
+    VersionsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

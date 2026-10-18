@@ -236,6 +236,46 @@ describe.skipIf(!ready)('影像與媒體（e2e）', () => {
     });
   });
 
+  describe('歷史視頻（T-40）', () => {
+    it('依攝影機與時間：錄影片段（含延續進來的）、抓拍、告警時間點；只有 history 也能看與下載', async () => {
+      const histOnly = await makeUser(['history']);
+      const base = Date.now() - 6 * 3600_000;
+      const put = async (kind: 'clip' | 'snapshot', at: number, durationS: number | null, name: string) => {
+        const key = `media/test/${tag}-h-${name}`;
+        await storage.put(key, Buffer.from('x'), kind === 'clip' ? 'video/mp4' : 'image/jpeg');
+        return (
+          await db
+            .insertInto('media')
+            .values({ kind, camera_id: cameraId, floor_id: FLOOR, stream_key: KEY, object_key: key, size_bytes: 1, content_type: kind === 'clip' ? 'video/mp4' : 'image/jpeg', duration_s: durationS, source: 'manual', created_at: new Date(at) })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+        ).id;
+      };
+      const longClip = await put('clip', base - 3600_000, 2 * 3600, 'long'); // 開始在範圍前、延續進來
+      const oldClip = await put('clip', base - 2 * 3600_000, 60, 'old'); // 範圍前就結束
+      const clip = await put('clip', base + 600_000, 60, 'in');
+      const snap = await put('snapshot', base + 900_000, null, 'snap');
+      await put('snapshot', base + 5 * 3600_000, null, 'late'); // 範圍外
+      await db
+        .insertInto('alarms')
+        .values({ code: `AH-${tag}`, type: 'intrusion', category: 'business', level: 1, camera_id: cameraId, floor_id: FLOOR, message: '入侵', status: 'open', occurred_at: new Date(base + 1200_000) })
+        .execute();
+      const q = `camera=${cameraId}&from=${encodeURIComponent(new Date(base).toISOString())}&to=${encodeURIComponent(new Date(base + 3600_000).toISOString())}`;
+      const h = (await as(histOnly, http().get(`/api/v1/media/history?${q}`)).expect(200)).body;
+      expect(h.clips.map((c: { id: string }) => c.id)).toEqual([longClip, clip]);
+      expect(h.clips.map((c: { id: string }) => c.id)).not.toContain(oldClip);
+      expect(h.snapshots.map((c: { id: string }) => c.id)).toEqual([snap]);
+      expect(h.alarms).toEqual([expect.objectContaining({ code: `AH-${tag}`, level: 1, category: 'business', message: '入侵' })]);
+      expect(h.clips[1].url).toMatch(/^http:\/\/fake-s3\//);
+      expect((await as(histOnly, http().get(`/api/v1/media/${clip}/url?download=1`)).expect(200)).body.url).toContain('dl=');
+      expect((await as(histOnly, http().get('/api/v1/media/options')).expect(200)).body.cameras.length).toBeGreaterThan(0);
+
+      await as(capturesOnly, http().get(`/api/v1/media/history?${q}`)).expect(403);
+      await as(histOnly, http().get(`/api/v1/media/history?from=${encodeURIComponent(new Date(base).toISOString())}&to=${encodeURIComponent(new Date(base + 3600_000).toISOString())}`)).expect(400);
+      await as(histOnly, http().get(`/api/v1/media/history?camera=${cameraId}&from=${encodeURIComponent(new Date(base).toISOString())}&to=${encodeURIComponent(new Date(base + 3 * 86400_000).toISOString())}`)).expect(400);
+    });
+  });
+
   describe('實際 MediaMTX（本機有開才跑）', () => {
     it('抓拍 3 秒內完成；錄影可下載播放', { timeout: 60_000 }, async (ctx) => {
       if (!(await liveMediaMtx())) return ctx.skip();

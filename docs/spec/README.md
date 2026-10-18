@@ -37,6 +37,11 @@
 | 能耗頁資料來源寫 `stats` | 新增 `GET /energy/:robotId`（曲線＋充電紀錄與統計）；任務報告 `GET /reports/tasks`、`/reports/tasks/:id`；運行日誌 `GET /runlog/:robotId`；`GET /robots/:id/track` 依介面規格 | `/stats/summary` 留給數據統計頁（T-40） |
 | 閒置登出（安全收尾 d） | 「不自動登出」在角色上設定（`roles.no_idle_logout`），全站 `auth.idleMinutes` 只管 5～480 分鐘 | PR #16 審查第 1 點 |
 | MQTT 憑證效期 | 轉接器 1 小時；機器人改派、停用時後端以 EMQX 管理 API 踢掉舊轉接器（`EMQX_API_KEY`／`EMQX_API_SECRET`） | PR #16 審查第 2 點 |
+| 數據統計 `GET /stats/summary` 只寫「任務數、里程、告警、可用率」 | 依台北日期區間、樓層、機器人；另有 `GET /stats/export`（Excel）。每台每天的里程與狀態時長存 `robot_daily_stats`（每日排程＋查詢時補算） | 原始遙測每台每秒一筆，跨月統計不能每次重掃 |
+| 歷史視頻「時間軸播放」 | `GET /media/history`：只列出已有的錄影片段、抓拍與告警時間點（沒有全天候錄影） | 本平台只有手動、告警、巡邏觸發的錄影 |
+| 音視頻管理「上傳語音與警示圖」 | `/assets`（音訊、警示圖、詞條）＋推送 `POST /assets/:id/push`；新指令 `show_image`、新能力 `screen` | 手冊沒有對應 API 與指令 |
+| 日誌「日誌下載」 | `/robot-logs`：新指令 `upload_logs`（轉接器 PUT 到預簽名網址），保存 30 天 | 手冊沒有對應 API 與指令 |
+| 版本「韌體版本」 | `GET /versions`：後端、前端、轉接器版本；機器人韌體待 SDK，韌體上傳推送不做 | 各家 SDK 目前沒有韌體版本與 OTA 介面 |
 
 ## 機器人 SDK 實況（2026-10-15 讀過原始碼）
 

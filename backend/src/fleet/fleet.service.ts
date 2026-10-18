@@ -189,7 +189,8 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
   async handleAdapterStatus(name: string, raw: unknown): Promise<void> {
     const msg = AdapterStatus.safeParse(raw);
     if (!msg.success) return this.warnOnce(`adapter:${name}`, `轉接器 ${name} 狀態格式錯誤`);
-    await this.redis.hset(`adapter:${name}`, { status: JSON.stringify(msg.data), at: Date.now() });
+    // 版本另外存（版本管理頁）：遺囑（alive=false）沒有版本，不能把上一次回報的版本蓋掉
+    await this.redis.hset(`adapter:${name}`, { status: JSON.stringify(msg.data), at: Date.now(), ...(msg.data.version && { version: msg.data.version }) });
     if (msg.data.alive) return;
     // 後端剛踢掉它（機器人改派）：EMQX 會發它的遺囑，但它幾秒內就會用新憑證連回來。不整批判離線、不發告警；
     // 真的沒回來的話，遙測逾時（robot.offlineSec）一樣會判離線
