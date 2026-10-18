@@ -537,7 +537,7 @@ export const zhTW = {
   'stats.kind.year': '年報表',
   'stats.kind.custom': '自定義',
   'stats.period': '期間',
-  'stats.period.week': '{from} ～ {to}',
+  'stats.period.week': '{y} 第 {w} 週（{from} ～ {to}）',
   'stats.period.month': '{y} 年 {m} 月',
   'stats.period.quarter': '{y} 年第 {q} 季',
   'stats.period.year': '{y} 年',

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../stores/auth';
 import { HistoryPage, type HistoryResp } from './HistoryPage';
-import { periods, StatsPage, type StatsResp } from './StatsPage';
+import { isoWeek, periods, StatsPage, type StatsResp } from './StatsPage';
 import { taipeiDate } from './time';
 
 function setup(ui: ReactNode, routes: Record<string, unknown>) {
@@ -29,7 +29,9 @@ afterEach(() => {
 describe('數據統計（T-40）', () => {
   it('期間選項：週（週一到週日）、月、季、年，不超過今天', () => {
     const w = periods('week', '2026-10-18'); // 週日
-    expect(w[0]).toMatchObject({ from: '2026-10-12', to: '2026-10-18' });
+    expect(w[0]).toMatchObject({ label: '2026 第 42 週（10-12 ～ 10-18）', from: '2026-10-12', to: '2026-10-18' });
+    expect(isoWeek('2026-12-28')).toEqual({ y: 2026, w: 53 });
+    expect(isoWeek('2027-01-04')).toEqual({ y: 2027, w: 1 });
     expect(w[1]).toMatchObject({ from: '2026-10-05', to: '2026-10-11' });
     expect(periods('month', '2026-10-18')[1]).toMatchObject({ label: '2026 年 9 月', from: '2026-09-01', to: '2026-09-30' });
     expect(periods('quarter', '2026-10-18')[0]).toMatchObject({ label: '2026 年第 4 季', from: '2026-10-01', to: '2026-10-18' });

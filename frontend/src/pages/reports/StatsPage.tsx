@@ -45,6 +45,14 @@ export interface StatsResp {
 type Kind = 'week' | 'month' | 'quarter' | 'year' | 'custom';
 const KINDS: Kind[] = ['week', 'month', 'quarter', 'year', 'custom'];
 
+/** ISO 週數（週一開始；該週週四所在的年份） */
+export function isoWeek(day: string): { y: number; w: number } {
+  const d = new Date(`${day}T00:00:00Z`);
+  const thu = new Date(d.getTime() + (3 - ((d.getUTCDay() + 6) % 7)) * 86400_000);
+  const jan1 = Date.UTC(thu.getUTCFullYear(), 0, 1);
+  return { y: thu.getUTCFullYear(), w: Math.floor((thu.getTime() - jan1) / 86400_000 / 7) + 1 };
+}
+
 /** 報表期間選項（台北日期）：近 8 週、6 個月、4 季、2 年 */
 export function periods(kind: Kind, today = taipeiDate()): { label: string; from: string; to: string }[] {
   const [y, m, d] = today.split('-').map(Number);
@@ -55,7 +63,7 @@ export function periods(kind: Kind, today = taipeiDate()): { label: string; from
     for (let i = 0; i < 8; i++) {
       const mon = addDays(today, -dow - 7 * i);
       const sun = addDays(mon, 6);
-      out.push({ label: t('stats.period.week', { from: mon.slice(5), to: sun.slice(5) }), from: mon, to: sun });
+      out.push({ label: t('stats.period.week', { y: isoWeek(mon).y, w: isoWeek(mon).w, from: mon.slice(5), to: sun.slice(5) }), from: mon, to: sun });
     }
   } else if (kind === 'month') {
     for (let i = 0; i < 6; i++) {

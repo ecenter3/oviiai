@@ -158,7 +158,7 @@ export function AssetsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.length === 0 && (
+                  {list.data && items.length === 0 && (
                     <tr>
                       <td colSpan={6} className="tbl-empty">
                         {t(`assets.empty.${kind}`)}
@@ -231,7 +231,7 @@ export function AssetsPage() {
               <div className="fl">
                 {t('assets.robots')}
                 <div className="robot-picks">
-                  {eligible.length === 0 && <span className="fhint">{t(kind === 'image' ? 'assets.noScreen' : 'assets.noSpeaker')}</span>}
+                  {robots.data && eligible.length === 0 && <span className="fhint">{t(kind === 'image' ? 'assets.noScreen' : 'assets.noSpeaker')}</span>}
                   {eligible.map((r) => (
                     <label key={r.id} className="check">
                       <input type="checkbox" checked={sel.includes(r.id)} onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} />
