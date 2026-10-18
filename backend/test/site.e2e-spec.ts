@@ -18,6 +18,7 @@ import { FleetService } from '../src/fleet/fleet.service';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { StorageService } from '../src/storage/storage.service';
+import { EmqxApi } from '../src/mqtt/emqx-api';
 import { FakeStorage } from './fake-storage';
 import { testMqttAuth } from './mqtt-test-auth';
 import { clearOrphanPendingCommands } from './pending-commands';
@@ -48,6 +49,8 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
   let admin: string;
   let viewer: string;
   const storage = new FakeStorage();
+  /** 記下被踢的 MQTT 連線（機器人改派轉接器，PR #16 審查第 2 點） */
+  const emqx = { kicked: [] as string[], configured: true, kick: async (id: string) => (emqx.kicked.push(id), true) };
   const roles: string[] = [];
   const users: string[] = [];
   const codes: string[] = [];
@@ -74,7 +77,12 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
     process.env[`ADAPTER_KEY_${ADAPTER.toUpperCase().replace(/-/g, '_')}`] = ADAPTER_KEY;
     db = createDatabase();
     await db.insertInto('floors').values({ id: FLOOR, name: `場域測試 ${FLOOR}`, sort: 99, width_m: '40', height_m: '20' }).execute();
-    const mod = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(StorageService).useValue(storage).compile();
+    const mod = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(StorageService)
+      .useValue(storage)
+      .overrideProvider(EmqxApi)
+      .useValue(emqx)
+      .compile();
     app = mod.createNestApplication<NestExpressApplication>();
     configureApp(app);
     await app.listen(0);
@@ -167,6 +175,25 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
       } finally {
         await ad.endAsync();
       }
+    });
+
+    it('機器人改派到別的轉接器、停用：踢掉舊轉接器的 MQTT 連線，新憑證不含這台（PR #16 審查第 2 點）', async () => {
+      const MOVE = `M${tag}-2`.toUpperCase();
+      codes.push(MOVE);
+      const r = await as(admin, http().post('/api/v1/robots'))
+        .send({ code: MOVE, brand: 'anbot', model: 'ANBOT-Y', floorId: FLOOR, adapter: ADAPTER, conn: {}, caps: [] })
+        .expect(201);
+      emqx.kicked.length = 0;
+      await as(admin, http().patch(`/api/v1/robots/${r.body.id}`)).send({ adapter: `${ADAPTER}-b` }).expect(200);
+      await until(() => emqx.kicked.includes(`adapter-${ADAPTER}`), 3000);
+      expect(emqx.kicked).not.toContain(`adapter-${ADAPTER}-b`);
+      const cfg = (await http().get(`/api/v1/adapter-config/${ADAPTER}`).set('X-Adapter-Key', ADAPTER_KEY).expect(200)).body;
+      expect(cfg.robots.map((x: { code: string }) => x.code)).not.toContain(MOVE);
+      if (cfg.mqtt) expect(JSON.parse(Buffer.from(cfg.mqtt.password.split('.')[1], 'base64url').toString()).acl.map((a: { topic: string }) => a.topic).join()).not.toContain(MOVE);
+      // 停用：踢掉現在的轉接器
+      emqx.kicked.length = 0;
+      await as(admin, http().delete(`/api/v1/robots/${r.body.id}`)).expect(200);
+      await until(() => emqx.kicked.includes(`adapter-${ADAPTER}-b`), 3000);
     });
 
     it('來源網段不在 ADAPTER_ALLOWED_CIDRS → 403，大寫路徑也一樣；正式環境沒設定一律 403（PR #11 審查第 1 點）', async () => {

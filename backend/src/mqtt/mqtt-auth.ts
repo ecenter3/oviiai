@@ -6,11 +6,16 @@ import { topics } from '@oviiai/contracts';
  * 權限放在 JWT 的 acl claim，沒列到的主題一律拒絕（authorization.no_match = deny）。
  * - 後端：帳號 backend，可發布、訂閱 rms/#
  * - 轉接器：帳號＝轉接器名稱，只能發布自己機器人的 telemetry／event／ack／online 與自己的心跳，
- *   只能訂閱自己機器人的 cmd／teleop。憑證由 GET /adapter-config/{name} 核發（轉接器金鑰驗證）。
+ *   只能訂閱自己機器人的 cmd／teleop。憑證由 GET /adapter-config/{name} 核發（轉接器金鑰驗證，1 小時）。
  * EMQX 設定 verify_claims.username = ${username}：JWT 只能用在它簽給的那個帳號。
  * disconnect_after_expire = false：效期只在連線當下檢查，連線中不會因過期被斷。
  */
-export const MQTT_TOKEN_TTL_SEC = 24 * 3600;
+/**
+ * 轉接器憑證效期 1 小時（PR #16 審查第 2 點）：轉接器每次同步設定（10 秒）就換新的一張，最長不超過 30 分鐘一定換過；
+ * 效期只在連線時檢查，所以後端停機超過 1 小時，轉接器斷線後要等後端恢復才連得回來。
+ * 撤銷靠踢連線：機器人改派、停用時 AdapterRevoker 用 EMQX API 踢掉舊轉接器，它重取憑證再連。
+ */
+export const MQTT_TOKEN_TTL_SEC = 3600;
 
 export interface AclRule {
   permission: 'allow';

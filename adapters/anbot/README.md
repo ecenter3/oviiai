@@ -41,5 +41,5 @@ SDK 到手時要確認：上樁對接成功後回報哪個欄位表示充電中�
 
 
 ## MQTT 帳號（所有轉接器；安全收尾 e）
-EMQX 不接受匿名連線。轉接器以 `ADAPTER_KEY_<名稱>` 呼叫 `GET /adapter-config/<名稱>`，回應的 `mqtt`（帳號＝轉接器名稱、24 小時 JWT）只能發布自己機器人的 `telemetry`／`event`／`ack`／`online` 與 `rms/adapter/<名稱>/status`，只能訂閱自己機器人的 `cmd`／`teleop`。
-照 `mock/run.py`、`deep_x30/run.py` 的做法：啟動與每 10 秒同步時呼叫 `common.config_sync.apply_mqtt_credentials(bridge, cfg)`，機器人清單變了 `Bridge` 會用新憑證重連。詳見 `docs/deploy.md` 第 10 節。
+EMQX 不接受匿名連線。轉接器以 `ADAPTER_KEY_<名稱>` 呼叫 `GET /adapter-config/<名稱>`，回應的 `mqtt`（帳號＝轉接器名稱、1 小時 JWT）只能發布自己機器人的 `telemetry`／`event`／`ack`／`online` 與 `rms/adapter/<名稱>/status`，只能訂閱自己機器人的 `cmd`／`teleop`。
+照 `mock/run.py`、`deep_x30/run.py` 的做法：啟動與每 10 秒同步時呼叫 `common.config_sync.apply_mqtt_credentials(bridge, cfg)`，機器人清單變了 `Bridge` 會用新憑證重連；`bridge.refresh_credentials = credentials_refresher(...)` 讓被後端踢掉（機器人改派）後重連前先重取憑證。詳見 `docs/deploy.md` 第 10 節。

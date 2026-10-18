@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiomqtt
@@ -49,7 +50,8 @@ def _json(model: Any) -> str:
 
 class Bridge:
     def __init__(self, name: str, version: str, drivers: list[RobotDriver], mqtt_url: str,
-                 username: str | None = None, password: str | None = None):
+                 username: str | None = None, password: str | None = None,
+                 refresh_credentials: Callable[[], Awaitable[None]] | None = None):
         self.name = name
         self.version = version
         self.drivers = {d.code: d for d in drivers}
@@ -60,6 +62,9 @@ class Bridge:
         self._scope: frozenset[str] | None = None
         self._session_scope: frozenset[str] | None = None
         self._reconnect = asyncio.Event()
+        # 斷線（或被後端踢掉）後、重連前先向後端重取憑證：機器人改派到別的轉接器時，
+        # 手上的憑證可能還含那台（PR #16 審查第 2 點）
+        self.refresh_credentials = refresh_credentials
         self._client: aiomqtt.Client | None = None
         self._teleop_deadline: dict[str, float] = {}
         self._running: dict[str, asyncio.Task] = {}
@@ -71,7 +76,14 @@ class Bridge:
 
     # ---------------------------------------------------------------- run
     async def run(self) -> None:
+        first = True
         while True:
+            if not first and self.refresh_credentials is not None:
+                try:
+                    await self.refresh_credentials()
+                except Exception as e:  # 後端連不上：用手上的憑證試
+                    log.warning("refresh mqtt credentials failed: %s", e)
+            first = False
             try:
                 await self._session()
             except aiomqtt.MqttError as e:

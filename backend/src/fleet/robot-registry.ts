@@ -22,6 +22,11 @@ export class RobotRegistry {
 
   /** 重新載入後不在清單裡的機器人（被停用或刪除），fleet 據此清掉即時狀態（PR #3 審查第 1 點） */
   readonly removed$ = new Subject<RobotInfo>();
+  /**
+   * 機器人離開某個轉接器（改派到別的轉接器、停用、刪除）：舊轉接器的 MQTT 連線權限還含這台，
+   * AdapterRevoker 據此踢掉舊轉接器，讓它用新憑證重連（PR #16 審查第 2 點）
+   */
+  readonly leftAdapter$ = new Subject<{ robot: RobotInfo; adapter: string }>();
 
   constructor(@Inject(KYSELY) private readonly db: Database) {}
 
@@ -35,10 +40,12 @@ export class RobotRegistry {
       rows.map((r) => [r.code, { id: r.id, code: r.code, floor: r.floor_id, adapter: r.adapter, caps: r.caps, brand: r.brand }]),
     );
     const gone = [...this.byCode.values()].filter((r) => !next.has(r.code));
+    const moved = [...this.byCode.values()].filter((r) => next.has(r.code) && next.get(r.code)!.adapter !== r.adapter);
     this.byCode = next;
     this.byId = new Map([...next.values()].map((r) => [r.id, r]));
     this.loadedAt = Date.now();
     for (const r of gone) this.removed$.next(r);
+    for (const r of [...gone, ...moved]) this.leftAdapter$.next({ robot: r, adapter: r.adapter });
   }
 
   all(): RobotInfo[] {
