@@ -37,6 +37,8 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
     endpoint: process.env.S3_ADAPTER_ENDPOINT || process.env.S3_ENDPOINT || 'http://localhost:8333',
     region: process.env.S3_REGION || 'us-east-1',
     forcePathStyle: true,
+    // 預簽名 PUT（日誌上傳）：SDK 預設把「空內容」的 checksum 簽進網址，轉接器上傳實際內容時 SeaweedFS 回 400 BadDigest（實測）
+    requestChecksumCalculation: 'WHEN_REQUIRED',
     credentials: { accessKeyId: process.env.S3_ACCESS_KEY || '', secretAccessKey: process.env.S3_SECRET_KEY || '' },
   });
   private ready: Promise<void> | null = null;
