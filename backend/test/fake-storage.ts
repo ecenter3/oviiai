@@ -5,6 +5,8 @@ import { Readable as R } from 'node:stream';
 /** e2e 用的物件儲存（CI 沒有 SeaweedFS）：存在記憶體，介面與 StorageService 相同 */
 export class FakeStorage {
   readonly objects = new Map<string, { body: Buffer; contentType: string; at: Date }>();
+  /** 測試假裝某個物件很大（不必真的放 200 MB 在記憶體） */
+  readonly fakeSizes = new Map<string, number>();
 
   async put(key: string, body: Buffer | string, contentType: string) {
     this.objects.set(key, { body: Buffer.from(body), contentType, at: new Date() });
@@ -28,6 +30,7 @@ export class FakeStorage {
 
   async remove(key: string) {
     this.objects.delete(key);
+    this.fakeSizes.delete(key);
   }
 
   async presign(key: string, opts: { filename?: string; ttlSec?: number; for?: 'browser' | 'adapter' } = {}) {
@@ -41,7 +44,8 @@ export class FakeStorage {
   }
 
   async size(key: string) {
-    return this.objects.get(key)?.body.length ?? null;
+    const o = this.objects.get(key);
+    return o ? (this.fakeSizes.get(key) ?? o.body.length) : null;
   }
 
   async list(prefix: string) {

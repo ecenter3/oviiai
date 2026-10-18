@@ -48,7 +48,7 @@
         {"cmdId": "c_8f32", "ts": 1792053940785, "type": "talk_stop"},
         {"cmdId": "c_8f33", "ts": 1792053940785, "type": "speak", "args": {"audio": {"url": "http://10.0.0.5:8333/rms/speak/20261017/3f2a.webm?X-Amz-Signature=abc", "mime": "audio/webm", "bytes": 19200, "durationMs": 1200}}},
         {"cmdId": "c_8f34", "ts": 1792053940785, "type": "show_image", "args": {"image": {"url": "http://10.0.0.5:8333/rms/assets/7c1d.png?X-Amz-Signature=abc", "mime": "image/png", "bytes": 20480}, "seconds": 30}},
-        {"cmdId": "c_8f35", "ts": 1792053940785, "type": "upload_logs", "args": {"subsystem": "motion", "url": "http://10.0.0.5:8333/rms/robot-logs/B2-001/9a1e.log?X-Amz-Signature=abc"}},
+        {"cmdId": "c_8f35", "ts": 1792053940785, "type": "upload_logs", "args": {"subsystem": "motion", "url": "http://10.0.0.5:8333/rms/robot-logs/B2-001/9a1e.log?X-Amz-Signature=abc", "maxBytes": 209715200}},
         {"cmdId": "c_8f2c", "ts": 1792053940785, "type": "patrol", "args": {"points": [{"x": 1, "y": 2}], "loops": 2}, "timeoutSec": 600}
       ],
       "invalid": [

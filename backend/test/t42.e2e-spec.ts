@@ -30,6 +30,12 @@ const SCREEN = `S${tag}-SCR`.toUpperCase();
 const SPEAKER = `S${tag}-SPK`.toUpperCase();
 const OFF = `S${tag}-OFF`.toUpperCase();
 
+/** 各格式的開頭位元組（素材上傳依內容判斷格式） */
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(492, 2)]);
+const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 3)]);
+const MP3 = Buffer.concat([Buffer.from('ID3'), Buffer.alloc(2997, 1)]);
+const WAV = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVE'), Buffer.alloc(200)]);
+
 async function until<T>(fn: () => T | Promise<T>, ms = 6000): Promise<T> {
   const end = Date.now() + ms;
   for (;;) {
@@ -52,8 +58,9 @@ describe.skipIf(!ready)('音視頻、日誌、版本管理（T-42，e2e）', () 
   const users: string[] = [];
   const ids: Record<string, string> = {};
   const cmds: { code: string; type: string; args: Record<string, unknown> }[] = [];
-  /** 下一個 upload_logs 回 failed */
+  /** 下一個 upload_logs 回 failed（已傳了一部分）／上傳超過上限的檔案 */
   let failNextLog = false;
+  let bigNextLog = false;
   let heartbeat: NodeJS.Timeout | undefined;
   const storage = new FakeStorage();
   const http = () => request(app.getHttpServer());
@@ -97,13 +104,15 @@ describe.skipIf(!ready)('音視頻、日誌、版本管理（T-42，e2e）', () 
       cmds.push({ code, type: m.type, args: m.args });
       let status = 'done';
       if (m.type === 'upload_logs') {
+        // 轉接器把日誌 PUT 到預簽名網址：測試直接寫進假物件儲存
+        const key = new URL(m.args.url).pathname.slice(1);
+        void storage.put(key, `log of ${code}\n`, 'text/plain');
         if (failNextLog) {
           failNextLog = false;
           status = 'failed';
-        } else {
-          // 轉接器把日誌 PUT 到預簽名網址：測試直接寫進假物件儲存
-          const key = new URL(m.args.url).pathname.slice(1);
-          void storage.put(key, `log of ${code}\n`, 'text/plain');
+        } else if (bigNextLog) {
+          bigNextLog = false;
+          storage.fakeSizes.set(key, 250 * 1024 * 1024);
         }
       }
       void adapter
@@ -152,18 +161,27 @@ describe.skipIf(!ready)('音視頻、日誌、版本管理（T-42，e2e）', () 
           .field('kind', 'audio')
           .field('name', `${tag} 請勿進入`)
           .field('durationMs', '2400')
-          .attach('file', Buffer.alloc(3000, 1), { filename: 'warn.mp3', contentType: 'audio/mpeg' })
+          .attach('file', MP3, { filename: 'warn.mp3', contentType: 'audio/mpeg' })
           .expect(201)
       ).body;
       expect(audio).toMatchObject({ kind: 'audio', name: `${tag} 請勿進入`, mime: 'audio/mpeg', sizeBytes: 3000, durationMs: 2400 });
       expect(audio.url).toMatch(/^http:\/\/fake-s3\/assets\/audio\/.+\.mp3/);
-      const img = (await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', Buffer.alloc(500, 2), { filename: `${tag}禁止進入.png`, contentType: 'image/png' }).expect(201)).body;
+      const img = (await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', PNG, { filename: `${tag}禁止進入.png`, contentType: 'image/png' }).expect(201)).body;
       expect(img).toMatchObject({ kind: 'image', name: `${tag}禁止進入`, mime: 'image/png' });
       const text = (await as(mgr, http().post('/api/v1/assets/text')).send({ name: `${tag} 疏散`, text: '請往最近的出口疏散' }).expect(201)).body;
       expect(text).toMatchObject({ kind: 'text', text: '請往最近的出口疏散', url: null });
 
       await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', Buffer.alloc(10), { filename: 'x.exe', contentType: 'application/octet-stream' }).expect(400);
-      await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', Buffer.alloc(6 * 1024 * 1024), { filename: 'big.png', contentType: 'image/png' }).expect(400);
+      await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', Buffer.concat([PNG, Buffer.alloc(6 * 1024 * 1024)]), { filename: 'big.png', contentType: 'image/png' }).expect(400);
+      // 依檔案內容判斷（PR #18 審查第 1 點）：宣告與內容不符、內容不是音訊或圖片 → 400
+      const bad = await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', JPG, { filename: 'fake.png', contentType: 'image/png' }).expect(400);
+      expect(bad.body.error.message).toBe('檔案內容是 jpg，與宣告的 png 不符');
+      await as(mgr, http().post('/api/v1/assets')).field('kind', 'audio').attach('file', PNG, { filename: 'x.mp3', contentType: 'audio/mpeg' }).expect(400);
+      await as(mgr, http().post('/api/v1/assets')).field('kind', 'image').attach('file', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), { filename: 'x.png', contentType: 'image/png' }).expect(400);
+      const wav = (await as(mgr, http().post('/api/v1/assets')).field('kind', 'audio').field('name', `${tag} wav`).attach('file', WAV, { filename: 'a.wav', contentType: 'audio/x-wav' }).expect(201)).body;
+      expect(wav).toMatchObject({ mime: 'audio/wav' });
+      expect(wav.url).toMatch(/\.wav\?/);
+      await as(mgr, http().delete(`/api/v1/assets/${wav.id}`)).expect(204);
       await as(mgr, http().patch(`/api/v1/assets/${audio.id}`)).send({ text: '音訊不能改內容' }).expect(400);
       expect((await as(mgr, http().patch(`/api/v1/assets/${text.id}`)).send({ text: '請立即疏散' }).expect(200)).body.text).toBe('請立即疏散');
       const list = (await as(mgr, http().get('/api/v1/assets?kind=image')).expect(200)).body;
@@ -210,6 +228,7 @@ describe.skipIf(!ready)('音視頻、日誌、版本管理（T-42，e2e）', () 
       expect(r).toMatchObject({ robotCode: SCREEN, subsystem: 'motion', status: 'requested' });
       const up = cmds.find((c) => c.type === 'upload_logs')!;
       expect(String(up.args.url)).toMatch(/^http:\/\/fake-s3-adapter\/robot-logs\/.+\.log\?put=1&ttl=900/);
+      expect(up.args.maxBytes).toBe(200 * 1024 * 1024);
       await until(async () => (await as(logs, http().get(`/api/v1/robot-logs?robotId=${ids[SCREEN]}`))).body.items[0]?.status === 'uploaded');
       const item = (await as(logs, http().get(`/api/v1/robot-logs?robotId=${ids[SCREEN]}`)).expect(200)).body.items[0];
       expect(item).toMatchObject({ sizeBytes: `log of ${SCREEN}\n`.length, fileName: expect.stringMatching(new RegExp(`^${SCREEN}_motion_\\d{14}\\.log$`)) });
@@ -221,6 +240,15 @@ describe.skipIf(!ready)('音視頻、日誌、版本管理（T-42，e2e）', () 
       await until(async () => (await as(logs, http().get(`/api/v1/robot-logs?robotId=${ids[SPEAKER]}`))).body.items[0]?.status === 'failed');
       expect((await as(logs, http().get(`/api/v1/robot-logs?robotId=${ids[SPEAKER]}`))).body.items[0]).toMatchObject({ id: f.id, error: '磁碟錯誤' });
       await as(logs, http().get(`/api/v1/robot-logs/${f.id}/url`)).expect(409);
+      // 失敗時已傳上來的部分也刪掉
+      expect([...storage.objects.keys()].filter((k) => k.startsWith(`robot-logs/${SPEAKER}/`))).toEqual([]);
+
+      // 超過上限（PR #18 審查第 2 點）：回報完成也當失敗，檔案刪除
+      bigNextLog = true;
+      const big = (await as(logs, http().post('/api/v1/robot-logs')).send({ robotId: ids[SPEAKER], subsystem: 'system' }).expect(201)).body;
+      await until(async () => (await as(logs, http().get(`/api/v1/robot-logs?robotId=${ids[SPEAKER]}`))).body.items[0]?.status === 'failed');
+      expect((await as(logs, http().get(`/api/v1/robot-logs?robotId=${ids[SPEAKER]}`))).body.items[0]).toMatchObject({ id: big.id, error: '檔案 250.0 MB 超過上限 200.0 MB，已刪除', sizeBytes: 250 * 1024 * 1024 });
+      expect([...storage.objects.keys()].filter((k) => k.startsWith(`robot-logs/${SPEAKER}/`))).toEqual([]);
 
       await as(logs, http().post('/api/v1/robot-logs')).send({ robotId: ids[OFF], subsystem: 'system' }).expect(409);
       await as(logs, http().post('/api/v1/robot-logs')).send({ robotId: ids[SCREEN], subsystem: 'kernel' }).expect(400);

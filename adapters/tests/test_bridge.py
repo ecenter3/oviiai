@@ -406,5 +406,9 @@ async def test_mock_show_image_and_upload_logs(setup):
         await b.on_message("rms/robot/B2-001/cmd", cmd("l3", "upload_logs", subsystem="video", url="http://127.0.0.1:1/x"))
         await asyncio.wait_for(asyncio.gather(*list(b._side)), 5)
         assert ("l3", "failed", "UPLOAD_FAILED") in b.acks()
+        # 超過後端給的上限：不傳，回報失敗
+        await b.on_message("rms/robot/B2-001/cmd", cmd("l4", "upload_logs", subsystem="motion", url=f"{base}/robot-logs/y.log", maxBytes=10))
+        await asyncio.wait_for(asyncio.gather(*list(b._side)), 3)
+        assert ("l4", "failed", "TOO_LARGE") in b.acks() and "/robot-logs/y.log" not in uploaded
     finally:
         srv.shutdown()

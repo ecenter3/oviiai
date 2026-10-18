@@ -13,6 +13,12 @@ export const SUBSYSTEMS = ['motion', 'video', 'interaction', 'system'] as const;
 export type Subsystem = (typeof SUBSYSTEMS)[number];
 /** 上傳網址效期；超過這麼久還沒回報就當失敗（後端重啟漏掉回覆時） */
 const UPLOAD_TTL_SEC = 15 * 60;
+/**
+ * 單檔上限（PR #18 審查第 2 點）。預簽名 PUT 限制不了大小，所以給轉接器 maxBytes 讓它先壓縮或截斷，
+ * 回報完成時後端再量一次，超過就刪掉並標記失敗；失敗、逾時的也一併刪掉已傳上來的檔案。
+ */
+export const LOG_MAX_BYTES = 200 * 1024 * 1024;
+const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
 
 export interface RobotLogView {
   id: string;
@@ -67,7 +73,7 @@ export class RobotLogsService implements OnModuleInit, OnModuleDestroy {
     const url = await this.storage.presignPut(key, { ttlSec: UPLOAD_TTL_SEC });
     const { id } = await this.db.insertInto('robot_logs').values({ robot_id: r.id, subsystem, object_key: key, requested_by: userId }).returning('id').executeTakeFirstOrThrow();
     try {
-      const rec = await this.bus.send(r, 'upload_logs', { subsystem, url }, userId);
+      const rec = await this.bus.send(r, 'upload_logs', { subsystem, url, maxBytes: LOG_MAX_BYTES }, userId);
       await this.db.updateTable('robot_logs').set({ cmd_id: rec.cmdId }).where('id', '=', id).execute();
     } catch (e) {
       await this.db.updateTable('robot_logs').set({ status: 'failed', error: e instanceof Error ? e.message : String(e) }).where('id', '=', id).execute();
@@ -76,30 +82,35 @@ export class RobotLogsService implements OnModuleInit, OnModuleDestroy {
     return this.get(id);
   }
 
-  /** 指令結束：成功就確認檔案在、記大小；失敗記原因 */
+  /** 指令結束：成功就確認檔案在、沒超過上限、記大小；失敗記原因並刪掉可能已傳上來的檔案 */
   async onResult(cmdId: string, ok: boolean, error?: string) {
     const row = await this.db.selectFrom('robot_logs').select(['id', 'object_key', 'status']).where('cmd_id', '=', cmdId).executeTakeFirst();
     if (!row || row.status !== 'requested') return;
-    const size = ok ? await this.storage.size(row.object_key) : null;
-    if (ok && size != null) {
+    const size = await this.storage.size(row.object_key);
+    if (ok && size != null && size <= LOG_MAX_BYTES) {
       await this.db.updateTable('robot_logs').set({ status: 'uploaded', size_bytes: size, uploaded_at: sql`now()` }).where('id', '=', row.id).execute();
-    } else {
-      await this.db
-        .updateTable('robot_logs')
-        .set({ status: 'failed', error: ok ? '機器人回報完成，但找不到上傳的檔案' : (error ?? '機器人回報失敗') })
-        .where('id', '=', row.id)
-        .execute();
+      return;
     }
+    const why = !ok ? (error ?? '機器人回報失敗') : size == null ? '機器人回報完成，但找不到上傳的檔案' : `檔案 ${mb(size)} 超過上限 ${mb(LOG_MAX_BYTES)}，已刪除`;
+    if (size != null) await this.removeObject(row.object_key);
+    await this.db.updateTable('robot_logs').set({ status: 'failed', error: why, size_bytes: size }).where('id', '=', row.id).execute();
+    if (ok && size != null) this.log.warn(`日誌 ${row.id} ${why}`);
+  }
+
+  private async removeObject(key: string) {
+    await this.storage.remove(key).catch((e) => this.log.warn(`刪除 ${key} 失敗：${e instanceof Error ? e.message : e}`));
   }
 
   async list(f: { robotId?: string; subsystem?: Subsystem }, page: number, size: number) {
-    // 超過上傳網址效期還沒回報（例：後端重啟漏掉回覆）：當失敗
-    await this.db
+    // 超過上傳網址效期還沒回報（例：後端重啟漏掉回覆）：當失敗，已傳上來的檔案（大小未經檢查）刪掉
+    const expired = await this.db
       .updateTable('robot_logs')
       .set({ status: 'failed', error: '逾時：機器人沒有在 15 分鐘內上傳' })
       .where('status', '=', 'requested')
       .where('created_at', '<', new Date(Date.now() - UPLOAD_TTL_SEC * 1000))
+      .returning('object_key')
       .execute();
+    for (const e of expired) await this.removeObject(e.object_key);
     let q = this.base();
     if (f.robotId) q = q.where('l.robot_id', '=', f.robotId);
     if (f.subsystem) q = q.where('l.subsystem', '=', f.subsystem);

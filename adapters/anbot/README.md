@@ -49,4 +49,4 @@ EMQX 不接受匿名連線。轉接器以 `ADAPTER_KEY_<名稱>` 呼叫 `GET /ad
 
 ## 警示圖、日誌上傳（所有轉接器；T-42）
 - `show_image {image: {url, mime, bytes}, seconds?}`：從預簽名網址（5 分鐘）下載圖片顯示在機器人螢幕 `seconds` 秒；機器人管理要勾「螢幕」能力才會收到。
-- `upload_logs {subsystem: motion|video|interaction|system, url}`：把該子系統的日誌（文字或壓縮檔）以 HTTP PUT 上傳到 `url`（15 分鐘有效），完成回 `done`，失敗回 `failed` 並附原因。模擬器的做法見 `mock/driver.py`。
+- `upload_logs {subsystem: motion|video|interaction|system, url, maxBytes}`：把該子系統的日誌（文字或壓縮檔）以 HTTP PUT 上傳到 `url`（15 分鐘有效），完成回 `done`，失敗回 `failed` 並附原因。檔案不得超過 `maxBytes`（目前 200 MB），太大先壓縮或只取最近的部分，仍放不下就回 `failed`（`TOO_LARGE`）；後端收到 `done` 會再量一次，超過就刪除並標記失敗。模擬器的做法見 `mock/driver.py`。
