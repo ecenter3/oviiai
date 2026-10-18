@@ -179,11 +179,24 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
     if (robot) await this.setOffline(robot, 'adapter_reported');
   }
 
+  /** 轉接器名稱 → 預期重連的期限（AdapterRevoker 踢掉連線前設定） */
+  private readonly expectedReconnect = new Map<string, number>();
+
+  expectAdapterReconnect(name: string, ms = 15_000): void {
+    this.expectedReconnect.set(name, Date.now() + ms);
+  }
+
   async handleAdapterStatus(name: string, raw: unknown): Promise<void> {
     const msg = AdapterStatus.safeParse(raw);
     if (!msg.success) return this.warnOnce(`adapter:${name}`, `轉接器 ${name} 狀態格式錯誤`);
     await this.redis.hset(`adapter:${name}`, { status: JSON.stringify(msg.data), at: Date.now() });
     if (msg.data.alive) return;
+    // 後端剛踢掉它（機器人改派）：EMQX 會發它的遺囑，但它幾秒內就會用新憑證連回來。不整批判離線、不發告警；
+    // 真的沒回來的話，遙測逾時（robot.offlineSec）一樣會判離線
+    if ((this.expectedReconnect.get(name) ?? 0) > Date.now()) {
+      this.log.log(`轉接器 ${name} 被踢後重連中，忽略這次斷線狀態`);
+      return;
+    }
     this.log.warn(`轉接器 ${name} 斷線，所屬機器人全部視為離線`);
     for (const robot of this.registry.all().filter((r) => r.adapter === name)) {
       await this.setOffline(robot, 'adapter_down');

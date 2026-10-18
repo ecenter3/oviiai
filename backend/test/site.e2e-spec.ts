@@ -187,6 +187,14 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
       await as(admin, http().patch(`/api/v1/robots/${r.body.id}`)).send({ adapter: `${ADAPTER}-b` }).expect(200);
       await until(() => emqx.kicked.includes(`adapter-${ADAPTER}`), 3000);
       expect(emqx.kicked).not.toContain(`adapter-${ADAPTER}-b`);
+      // 被踢後 EMQX 發出它的遺囑（alive=false）：預期中的重連，不整批判離線
+      await pub.publishAsync(
+        `rms/robot/${CODE}/telemetry`,
+        JSON.stringify({ ts: Date.now(), pose: { x: 3, y: 4, yaw: 0, floor: FLOOR }, battery: { pct: 77, charging: false }, state: 'idle', faults: [] }),
+      );
+      await until(() => app.get(FleetService).get(CODE)?.online);
+      await app.get(FleetService).handleAdapterStatus(ADAPTER, { name: ADAPTER, alive: false });
+      expect(app.get(FleetService).get(CODE)?.online).toBe(true);
       const cfg = (await http().get(`/api/v1/adapter-config/${ADAPTER}`).set('X-Adapter-Key', ADAPTER_KEY).expect(200)).body;
       expect(cfg.robots.map((x: { code: string }) => x.code)).not.toContain(MOVE);
       if (cfg.mqtt) expect(JSON.parse(Buffer.from(cfg.mqtt.password.split('.')[1], 'base64url').toString()).acl.map((a: { topic: string }) => a.topic).join()).not.toContain(MOVE);

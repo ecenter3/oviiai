@@ -57,7 +57,7 @@ describe.skipIf(!ready)('能耗、任務報告、運行日誌（T-39，e2e）', 
         .executeTakeFirstOrThrow()
     ).id;
     // 0～30 分：在 (0,0)→(30,0) 每分鐘走 1 m、電量 80→77；30～60 分充電 77→87（另有一筆 100 m 的跳點不計里程）
-    const rows = [];
+    const rows: { at: Date; robot_id: string; x: number; y: number; yaw: number; battery: number; charging: boolean; state: string; voltage: number; current: number }[] = [];
     for (let m = 0; m <= 60; m++) {
       const charging = m > 30;
       rows.push({

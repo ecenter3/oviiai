@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { Subscription } from 'rxjs';
 import { adapterClientId, EmqxApi } from '../mqtt/emqx-api';
+import { FleetService } from './fleet.service';
 import { RobotRegistry } from './robot-registry';
 
 /**
@@ -17,6 +18,7 @@ export class AdapterRevoker implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly registry: RobotRegistry,
     private readonly emqx: EmqxApi,
+    private readonly fleet: FleetService,
   ) {}
 
   onModuleInit() {
@@ -36,6 +38,8 @@ export class AdapterRevoker implements OnModuleInit, OnModuleDestroy {
     const codes = this.pending.get(adapter)?.codes ?? [];
     this.pending.delete(adapter);
     try {
+      // 被踢會發出遺囑（alive=false）：先告訴 fleet 這是預期中的重連，不要整批判離線、發「轉接器斷線」告警
+      this.fleet.expectAdapterReconnect(adapter);
       if (await this.emqx.kick(adapterClientId(adapter))) this.log.log(`${codes.join('、')} 已離開轉接器 ${adapter}，踢掉它的 MQTT 連線，讓它用新憑證重連`);
     } catch (e) {
       this.log.warn(`踢掉轉接器 ${adapter} 的連線失敗：${e instanceof Error ? e.message : e}（它重連之前仍有這台的權限）`);
