@@ -43,7 +43,7 @@ export class AuthController {
   ) {
     const r = await this.auth.login(body.username, body.password, req.ip ?? null);
     res.cookie(REFRESH_COOKIE, r.refreshToken, { ...this.cookie, expires: r.refreshExpiresAt });
-    return { accessToken: r.accessToken, user: r.user, perms: r.perms, mustChangePassword: r.mustChangePassword, idleMinutes: await this.settings.idleMinutes() };
+    return { accessToken: r.accessToken, user: r.user, perms: r.perms, mustChangePassword: r.mustChangePassword, idleMinutes: await this.settings.idleMinutes(r.noIdleLogout) };
   }
 
   @Public()

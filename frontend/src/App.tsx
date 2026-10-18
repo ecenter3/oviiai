@@ -8,6 +8,7 @@ import { ParamsPage } from './pages/admin/ParamsPage';
 import { SetupPage } from './pages/admin/SetupPage';
 import { SitePage } from './pages/admin/SitePage';
 import { RobotAdminPage } from './pages/admin/RobotAdminPage';
+import { RolesPage } from './pages/admin/RolesPage';
 import { CapturesPage, RecordsPage } from './pages/media/MediaPages';
 import { NavPage } from './pages/nav/NavPage';
 import { AlarmSettingsPage } from './pages/alarms/AlarmSettingsPage';
@@ -31,6 +32,7 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/alarms/business': () => <AlarmsPage key="business" category="business" />,
   '/alarms/settings': AlarmSettingsPage,
   '/robot-admin': RobotAdminPage,
+  '/roles': RolesPage,
   '/maps': MapsPage,
   '/nav': NavPage,
   '/captures': CapturesPage,

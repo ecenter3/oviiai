@@ -16,6 +16,8 @@ export interface AuthUser {
   perms: string[];
   /** 管理員建立帳號或重設密碼後為 true：改密碼前只能用 /me、改密碼、登出 */
   mustChangePassword: boolean;
+  /** 角色設定「不自動登出」（例：監看大屏） */
+  noIdleLogout: boolean;
 }
 
 export interface LockoutPolicy {
@@ -45,6 +47,7 @@ export class AuthRepository {
         'r.is_system as isSystem',
         'r.perms',
         'u.must_change_password as mustChangePassword',
+        'r.no_idle_logout as noIdleLogout',
       ]);
   }
 

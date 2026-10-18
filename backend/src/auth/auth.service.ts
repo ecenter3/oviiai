@@ -23,6 +23,7 @@ export interface LoginResult {
   user: { id: string; username: string; displayName: string; role: { id: string; name: string } };
   perms: string[];
   mustChangePassword: boolean;
+  noIdleLogout: boolean;
 }
 
 const BAD_CREDENTIALS = '帳號或密碼錯誤';
@@ -131,5 +132,6 @@ function view(u: AuthUser) {
     user: { id: u.id, username: u.username, displayName: u.displayName, role: { id: u.roleId, name: u.roleName } },
     perms: u.perms,
     mustChangePassword: u.mustChangePassword,
+    noIdleLogout: u.noIdleLogout,
   };
 }

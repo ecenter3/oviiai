@@ -14,6 +14,8 @@ const CreateRoleBody = z.object({
   name: z.string().trim().min(1).max(32),
   description: z.string().trim().max(200).nullable().optional(),
   perms: Perms,
+  /** 不自動登出（例：監看大屏）；PR #16 審查第 1 點 */
+  noIdleLogout: z.boolean().optional(),
 });
 const UpdateRoleBody = CreateRoleBody.partial().strict();
 

@@ -51,6 +51,7 @@ export class AuthGuard implements CanActivate {
       isSystem: user.isSystem,
       perms: user.perms,
       mustChangePassword: user.mustChangePassword,
+      noIdleLogout: user.noIdleLogout,
     };
 
     // 管理員建立帳號或重設密碼後，改密碼前只能用 /me、改密碼、登出

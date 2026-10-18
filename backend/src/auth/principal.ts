@@ -8,4 +8,5 @@ export interface Principal extends AccessPayload {
   perms: string[];
   /** 管理員建立或重設密碼後、使用者還沒改密碼 */
   mustChangePassword?: boolean;
+  noIdleLogout?: boolean;
 }
