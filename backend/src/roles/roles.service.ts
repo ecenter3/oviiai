@@ -12,6 +12,7 @@ export interface RoleView {
   description: string | null;
   perms: string[];
   isSystem: boolean;
+  noIdleLogout: boolean;
   memberCount: number;
   createdAt: string;
 }
@@ -20,6 +21,7 @@ export interface SaveRole {
   name: string;
   description?: string | null;
   perms: PermCode[];
+  noIdleLogout?: boolean;
 }
 
 const DUP_NAME = () => new AppError('VALIDATION_FAILED', '角色名稱已存在', { fields: { name: '角色名稱已存在' } });
@@ -44,7 +46,7 @@ export class RolesService {
     try {
       const { id } = await this.db
         .insertInto('roles')
-        .values({ name: dto.name, description: dto.description ?? null, perms: normalize(dto.perms) })
+        .values({ name: dto.name, description: dto.description ?? null, perms: normalize(dto.perms), no_idle_logout: dto.noIdleLogout ?? false })
         .returning('id')
         .executeTakeFirstOrThrow();
       return this.get(id);
@@ -69,6 +71,7 @@ export class RolesService {
         .set({
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.noIdleLogout !== undefined && { no_idle_logout: dto.noIdleLogout }),
           ...(perms && !role.isSystem && { perms }),
         })
         .where('id', '=', id)
@@ -102,6 +105,7 @@ export class RolesService {
         'r.description',
         'r.perms',
         'r.is_system',
+        'r.no_idle_logout',
         'r.created_at',
         eb.fn.count<string>('u.id').as('member_count'),
       ])
@@ -130,6 +134,7 @@ function view(r: {
   description: string | null;
   perms: string[];
   is_system: boolean;
+  no_idle_logout: boolean;
   created_at: Date;
   member_count: string;
 }): RoleView {
@@ -139,6 +144,7 @@ function view(r: {
     description: r.description,
     perms: r.perms,
     isSystem: r.is_system,
+    noIdleLogout: r.no_idle_logout,
     memberCount: Number(r.member_count),
     createdAt: r.created_at.toISOString(),
   };

@@ -22,6 +22,7 @@ import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { SettingsService } from '../src/settings/settings.service';
 import { testMqttAuth } from './mqtt-test-auth';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -283,6 +284,7 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
       await db.updateTable('settings').set({ updated_by: null }).where('updated_by', '=', userId).execute();
       await db.deleteFrom('users').where('id', '=', userId).execute();
       await db.deleteFrom('roles').where('id', '=', roleId).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });

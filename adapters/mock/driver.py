@@ -148,12 +148,25 @@ class MockDriver(RobotDriver):
         self.speed = dist / TICK_S
         self.battery = max(0.0, self.battery - dist * self.drain_per_m)
 
+    # ---- 模擬電池（T-39 能耗管理）：48 V 鋰電池組，電壓隨電量 44～52.5 V，充電時略高 ----
+    def _voltage(self) -> float:
+        return round(44 + self.battery * 0.085 + (1.2 if self.state == "charging" else 0) + random.uniform(-0.15, 0.15), 2)
+
+    def _current(self) -> float:
+        """安培：充電為正，行走約 -1.5～-2.1，待命約 -0.4"""
+        if self.state == "charging":
+            return round(4.8 + random.uniform(0, 0.6), 2)
+        if self.speed > 0.05:
+            return round(-(1.5 + min(self.speed, 1.5) * 0.4 + random.uniform(0, 0.2)), 2)
+        return round(-(0.35 + random.uniform(0, 0.1)), 2)
+
     async def read_telemetry(self) -> Telemetry:
         px, py = self.to_platform.apply(self.x, self.y)
         return Telemetry(
             ts=now_ms(),
             pose=Pose(x=round(px, 3), y=round(py, 3), yaw=round(self.to_platform.apply_yaw(self.yaw), 3), floor=self.floor),
-            battery=Battery(pct=round(self.battery, 1), charging=self.state == "charging"),
+            battery=Battery(pct=round(self.battery, 1), charging=self.state == "charging",
+                            voltage=self._voltage(), current=self._current()),
             state=self.state, speed=round(self.speed, 2), taskRef=self.task_ref,
         )
 

@@ -56,6 +56,8 @@ class Battery(Msg):
     pct: float = Field(ge=0, le=100)
     charging: bool
     voltage: float | None = None
+    #: 安培，充電為正、放電為負（T-39 能耗管理；SDK 沒提供就不填）
+    current: float | None = None
 
 
 class Fault(Msg):

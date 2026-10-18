@@ -9,6 +9,7 @@ export interface RolesTable {
   description: string | null;
   perms: ColumnType<string[], string[] | undefined, string[]>;
   is_system: ColumnType<boolean, boolean | undefined, boolean>;
+  no_idle_logout: ColumnType<boolean, boolean | undefined, boolean>;
   created_at: ColumnType<Date, never, never>;
 }
 
@@ -94,6 +95,8 @@ export interface TelemetryTable {
   task_id: string | null;
   rssi: number | null;
   speed: number | null;
+  voltage: number | null;
+  current: number | null;
 }
 
 export interface RobotStateLogTable {

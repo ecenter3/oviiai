@@ -14,7 +14,8 @@ describe('播放憑證', () => {
     const [body, sig] = token.split('.');
     const forged = Buffer.from(JSON.stringify({ p: 'cam/B', u: 'u1', e: 9e9 })).toString('base64url');
     expect(verifyStreamToken(`${forged}.${sig}`, 'cam/B')).toBeNull();
-    expect(verifyStreamToken(`${body}.x${sig.slice(1)}`, 'cam/A')).toBeNull();
+    // 換掉簽章第一個字（簽章本來就以 x 開頭時改用 y，不然沒有竄改到；約 1/64 機率）
+    expect(verifyStreamToken(`${body}.${sig[0] === 'x' ? 'y' : 'x'}${sig.slice(1)}`, 'cam/A')).toBeNull();
     expect(verifyStreamToken('garbage', 'cam/A')).toBeNull();
     expect(verifyStreamToken(undefined, 'cam/A')).toBeNull();
   });

@@ -28,6 +28,8 @@ import { StorageModule } from './storage/storage.module';
 
 // 模組依工程開發手冊「後端」章節逐步加入：
 // face, reports, integrations
+import { ReportsModule } from './reports/reports.module';
+
 @Module({
   imports: [
     DatabaseModule,
@@ -54,6 +56,7 @@ import { StorageModule } from './storage/storage.module';
     CalibrationModule,
     MediaModule,
     MaintenanceModule,
+    ReportsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

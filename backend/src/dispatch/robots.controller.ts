@@ -25,9 +25,9 @@ export class RobotsController {
     private readonly lock: TeleopLock,
   ) {}
 
-  /** 實時遙控頁（remote）、機器人參數頁（params）也要選機器人 */
+  /** 實時遙控頁（remote）、機器人參數頁（params）、能耗／任務報告／運行日誌頁（T-39）也要選機器人 */
   @Get()
-  @RequireAnyPerm('robots', 'remote', 'params')
+  @RequireAnyPerm('robots', 'remote', 'params', 'energy', 'reports', 'runlog')
   async list(@Query(new ZodPipe(RobotQuery)) q: z.infer<typeof RobotQuery>) {
     let query = this.db
       .selectFrom('robots')

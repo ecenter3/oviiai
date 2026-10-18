@@ -19,6 +19,7 @@ import { TelemetryWriter } from '../src/fleet/telemetry-writer';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { testMqttAuth } from './mqtt-test-auth';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -120,6 +121,7 @@ describe.skipIf(!ready)('fleet（e2e）', () => {
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       if (users.length) await db.deleteFrom('users').where('id', 'in', users).execute();
       if (roles.length) await db.deleteFrom('roles').where('id', 'in', roles).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });

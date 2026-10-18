@@ -24,6 +24,7 @@ from common.config_sync import (
     adapter_key,
     apply_mqtt_credentials,
     backend_url,
+    credentials_refresher,
     fetch_adapter_config,
     load_dotenv,
     request_calibrations,
@@ -104,6 +105,8 @@ async def amain(cfg: dict[str, Any]) -> None:
                     os.getenv("MQTT_ADAPTER_USER"), os.getenv("MQTT_ADAPTER_PASSWORD"))
     if cfg:
         apply_mqtt_credentials(bridge, cfg)
+    if key:
+        bridge.refresh_credentials = credentials_refresher(bridge, base, ADAPTER, key)
     tasks = [asyncio.create_task(bridge.run())]
     if key:
         tasks.append(asyncio.create_task(sync_loop(bridge, base, key, defaults)))

@@ -28,10 +28,14 @@ export class SettingsService {
     return this.cache.get(key);
   }
 
-  /** 閒置自動登出分鐘數（0＝不登出）；所有登入者都要知道，由 /me 與登入回傳 */
-  async idleMinutes(): Promise<number> {
-    const v = Number(await this.get('auth.idleMinutes') ?? 30);
-    return Number.isInteger(v) && v >= 0 ? v : 30;
+  /**
+   * 這個人閒置多少分鐘自動登出（0＝不登出）：角色設了「不自動登出」就是 0，否則全站設定（預設 30）。
+   * 所有登入者都要知道，由 /me 與登入回傳。
+   */
+  async idleMinutes(noIdleLogout = false): Promise<number> {
+    if (noIdleLogout) return 0;
+    const v = Number((await this.get('auth.idleMinutes')) ?? 30);
+    return Number.isInteger(v) && v >= 5 ? v : 30;
   }
 
   invalidate(): void {

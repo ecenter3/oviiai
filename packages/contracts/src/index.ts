@@ -14,7 +14,8 @@ export type RobotState = z.infer<typeof RobotState>;
 export const Telemetry = z.object({
   ts: z.number().int(),
   pose: z.object({ x: z.number(), y: z.number(), yaw: z.number(), floor: z.string() }),
-  battery: z.object({ pct: z.number().min(0).max(100), charging: z.boolean(), voltage: z.number().optional() }),
+  // voltage 伏特；current 安培，充電為正、放電為負（T-39 能耗管理；SDK 沒提供就不填）
+  battery: z.object({ pct: z.number().min(0).max(100), charging: z.boolean(), voltage: z.number().optional(), current: z.number().optional() }),
   state: RobotState,
   speed: z.number().optional(),
   taskRef: z.string().nullable().optional(),

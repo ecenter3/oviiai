@@ -5,6 +5,7 @@ driver 等機器人不在移動、或下一個移動指令開始時才換（PR #
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -75,3 +76,13 @@ def request_calibrations(drivers: dict[str, Any], robots: list[dict[str, Any]]) 
             d.request_transform(tf)
             changed.append(r["code"])
     return changed
+
+
+def credentials_refresher(bridge: Any, base: str, name: str, key: str) -> Any:
+    """給 Bridge 的 refresh_credentials：重連前向後端重取設定、套用新憑證"""
+
+    async def refresh() -> None:
+        cfg = await asyncio.to_thread(fetch_adapter_config, base, name, key)
+        apply_mqtt_credentials(bridge, cfg)
+
+    return refresh

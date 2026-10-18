@@ -507,6 +507,13 @@ fieldset.contents { display: contents; border: 0; }
 .badge2.unreg { color: #fdba74; border-color: rgba(249,115,22,.5); background: rgba(249,115,22,.1); }
 .ferr { color: #fca5a5; font-size: 12px; font-weight: 400; }
 .fhint { color: var(--fg-3); font-size: 11px; font-weight: 400; }
+/* 角色管理：權限勾選樹 */
+.ptree { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.pgrp { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.pgrp label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); cursor: pointer; }
+.pgrp label.pg { grid-column: 1 / -1; font-weight: 600; color: var(--fg); }
+.pgrp input { width: auto; accent-color: var(--accent); }
+.dtbl tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .obtn.red { border-color: rgba(239,68,68,.55); color: #fca5a5; }
 .go2.warn { border-color: rgba(245,158,11,.6); background: rgba(245,158,11,.08); color: #fbbf24; }
 .go2.danger { border-color: rgba(239,68,68,.6); background: rgba(239,68,68,.08); color: #fca5a5; }
@@ -781,3 +788,57 @@ label.arow { cursor: pointer; }
 .site-blocked { margin: 0 0 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(239,68,68,.6); background: rgba(239,68,68,.1); color: #fecaca; font-size: 13px; }
 .site-blocked ul { margin: 6px 0 0; padding-left: 18px; }
 .modal .fl input { width: 100%; margin-top: 6px; padding: 7px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+
+/* ===== T-39 能耗管理、任務報告、運行日誌（原型樣式） ===== */
+.badge2.bad { color: #fca5a5; border-color: rgba(239,68,68,.55); background: rgba(239,68,68,.12); }
+.chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+.ccard { border: 1px solid rgba(25,180,255,.3); border-radius: 6px; background: linear-gradient(180deg, #0f2440, #0c1b30); padding: 8px 10px 4px; min-width: 0; }
+.ccard-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 700; color: var(--fg); }
+.ccard-h span { font: 500 12px var(--font-data); color: var(--accent-2); }
+.chart-box { position: relative; }
+.chart { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.ch-grid { stroke: rgba(120,170,230,.12); stroke-width: 1; }
+.ch-y, .ch-x { fill: #8aa3bf; font: 11px var(--font-data); }
+.ch-y { text-anchor: end; } .ch-x { text-anchor: middle; }
+.ch-hover line { stroke: rgba(200,225,255,.45); stroke-width: 1; stroke-dasharray: 3 3; }
+.ch-hover circle { stroke: #0c1b30; stroke-width: 2; }
+.ch-tip { position: absolute; top: 6px; transform: translateX(-50%); pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(25,180,255,.45); background: rgba(8,18,32,.92); white-space: nowrap; font: 12px var(--font-data); color: var(--fg-2); }
+.ch-tip b { color: var(--fg); font-size: 13px; }
+.ch-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-3); font-size: 13px; pointer-events: none; }
+.en-charge h3 { font-size: 14px; margin-bottom: 10px; }
+.en-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.en-stat { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.en-stat span { font-size: 12px; color: var(--fg-3); }
+.en-stat b { font: 700 18px var(--font-data); color: var(--fg); }
+.en-stat small { margin-left: 4px; font-size: 11px; font-weight: 500; color: var(--fg-3); }
+.tl { display: flex; flex-direction: column; gap: 14px; padding: 14px; }
+.tl-item { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; position: relative; }
+.tl-item::before { content: ""; position: absolute; left: 16px; top: 24px; bottom: -14px; width: 2px; background: rgba(25,180,255,.3); }
+.tl-item:last-child::before { display: none; }
+.tl-n { height: 22px; border-radius: 3px; background: #1d6ff2; color: #fff; font: 700 11px/22px var(--font-data); text-align: center; }
+.tl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: 500 12px var(--font-data); color: var(--fg); }
+.tl-dur { padding: 1px 8px; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent-2); }
+.tl-op { margin-left: auto; color: #4ade80; font-family: var(--font-body); font-weight: 700; }
+.tl-box { margin-top: 6px; display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 4px; background: rgba(25,180,255,.08); border: 1px solid rgba(25,180,255,.25); font-size: 13px; }
+.tl-box b { color: var(--accent-2); }
+.tl-box span { color: var(--fg-2); font-size: 12px; }
+.tl-box.st-offline, .tl-box.st-fault, .tl-box.st-estop { background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.35); }
+.tl-box.st-offline b, .tl-box.st-fault b, .tl-box.st-estop b { color: #fca5a5; }
+.tl-box.st-charging b { color: #86efac; }
+.rl-totals { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 0; font-size: 12px; color: var(--fg-2); }
+.rl-tot { padding: 3px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.rl-tot b { font-family: var(--font-data); color: var(--fg); margin-left: 4px; }
+.report-map { position: relative; height: 360px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.kvt td.tone-ok { color: #86efac; } .kvt td.tone-bad { color: #fca5a5; }
+@media (max-width: 900px) { .chart-grid { grid-template-columns: minmax(0, 1fr); } }
+/* 任務報告列印：只印報告本身，白底黑字 */
+@media print {
+  body:has(.report-print) { background: #fff; }
+  body:has(.report-print) > :not(.report-print) { display: none; }
+  .report-print { position: static; background: #fff; padding: 0; display: block; }
+  .report-print .modal { width: 100%; max-height: none; border: 0; box-shadow: none; background: #fff; color: #111; padding: 0; }
+  .report-print .kvt th, .report-print .kvt td { color: #111; background: #fff; border-color: #999; }
+  .report-print .kvt th { background: #eef3f9; }
+  .report-print .no-print { display: none; }
+  .report-print .report-map { break-inside: avoid; border-color: #999; }
+}

@@ -22,6 +22,7 @@ from common.config_sync import (
     adapter_key,
     apply_mqtt_credentials,
     backend_url,
+    credentials_refresher,
     fetch_adapter_config,
     load_dotenv,
 )
@@ -70,6 +71,8 @@ async def calib_loop(bridge: Bridge, key: str) -> None:
 
 async def amain(bridge: Bridge) -> None:
     key = adapter_key(ADAPTER)
+    if key:
+        bridge.refresh_credentials = credentials_refresher(bridge, backend_url(), ADAPTER, key)
     tasks = [asyncio.create_task(bridge.run())]
     if key:
         tasks.append(asyncio.create_task(calib_loop(bridge, key)))

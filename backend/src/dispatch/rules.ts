@@ -18,14 +18,11 @@ export const RULES = {
   'cmd.timeoutSec': { schema: z.number().int().min(5).max(120), default: 15 },
   /** 遙控鎖閒置多久（只收到零速度）自動回收，秒（PR #13 審查第 1 點） */
   'teleop.idleSec': { schema: z.number().int().min(60).max(1800), default: 300 },
-  /** 閒置多少分鐘自動登出（安全收尾 d）；0＝不登出（例：控制室大螢幕）。登入政策，不隨場域設定包匯出入 */
-  'auth.idleMinutes': {
-    schema: z
-      .number()
-      .int()
-      .refine((n) => n === 0 || (n >= 5 && n <= 480), '0（不自動登出）或 5～480 分鐘'),
-    default: 30,
-  },
+  /**
+   * 閒置多少分鐘自動登出（安全收尾 d），5～480。登入政策，不隨場域設定包匯出入。
+   * 「不自動登出」在角色上設定（roles.no_idle_logout，例：監看大屏），不是全站（PR #16 審查第 1 點）
+   */
+  'auth.idleMinutes': { schema: z.number().int().min(5).max(480), default: 30 },
 } as const;
 
 export type RuleKey = keyof typeof RULES;

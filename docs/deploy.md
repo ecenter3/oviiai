@@ -11,6 +11,7 @@
 | `DATA_ENC_KEY` | ≥ 32 字元（`openssl rand -base64 48`） | 正式環境拒絕啟動 |
 | `ADAPTER_KEY_<名稱>` | ≥ 16 字元（`openssl rand -hex 24`），每個轉接器一把 | 該轉接器取不到設定 |
 | `EMQX_JWT_SECRET` | ≥ 32 字元（`openssl rand -hex 32`），EMQX 與後端設同一把（第 10 節） | 正式環境拒絕啟動；轉接器連不上 MQTT |
+| `EMQX_API_SECRET` | `openssl rand -hex 24`，EMQX 的 API 金鑰檔用同一把（第 10 節） | 機器人改派時無法立即踢掉舊轉接器 |
 
 ### `DATA_ENC_KEY` 的保管（PR #10 審查第 4 點）
 - 攝影機 RTSP 帳密、機器人連線密碼以這把金鑰（pgcrypto `pgp_sym_encrypt`）加密存放。**金鑰遺失 = 所有密碼無法解密**，只能逐台重新輸入。
@@ -106,9 +107,11 @@ EMQX 不接受匿名連線。後端與每個轉接器各用自己的帳號，權
 | 帳號 | 憑證從哪來 | 可發布 | 可訂閱 |
 |---|---|---|---|
 | `backend` | 後端用 `EMQX_JWT_SECRET` 自己簽，每次重連換新 | `rms/#` | `rms/#` |
-| 轉接器名稱（例 `mock`、`deep_x30`） | 轉接器以金鑰呼叫 `GET /adapter-config/<名稱>` 取得（24 小時效期） | 自己機器人的 `telemetry`、`event`、`ack`、`online`，自己的 `rms/adapter/<名稱>/status` | 自己機器人的 `cmd`、`teleop` |
+| 轉接器名稱（例 `mock`、`deep_x30`） | 轉接器以金鑰呼叫 `GET /adapter-config/<名稱>` 取得（1 小時效期） | 自己機器人的 `telemetry`、`event`、`ack`、`online`，自己的 `rms/adapter/<名稱>/status` | 自己機器人的 `cmd`、`teleop` |
 
-「自己的機器人」＝「機器人管理」裡轉接器欄填這個名稱、而且啟用中的機器人。轉接器每 10 秒同步設定時一併換新憑證；機器人增減時自動用新憑證重連（約 1 秒）。轉接器冒用別台的代碼發遙測、或訂閱別台的指令，EMQX 直接擋下。
+「自己的機器人」＝「機器人管理」裡轉接器欄填這個名稱、而且啟用中的機器人。轉接器每 10 秒同步設定時一併換新憑證（最長不超過 30 分鐘一定換過）；機器人增減時自動用新憑證重連（約 1 秒）。轉接器冒用別台的代碼發遙測、或訂閱別台的指令，EMQX 直接擋下。
+
+**撤銷**（PR #16 審查第 2 點）：EMQX 的權限是連線當下憑證裡的清單，連線中不會變。機器人**改派到別的轉接器、停用或刪除**時，後端用 EMQX 管理 API 踢掉舊轉接器的連線（1 秒內），轉接器重連前會先向後端重取憑證，新憑證已不含這台。需要設定 `EMQX_API_URL`、`EMQX_API_KEY`、`EMQX_API_SECRET`，並讓 EMQX 啟動時建立這把金鑰：`api_key.bootstrap_file` 指向內容為 `<EMQX_API_KEY>:<EMQX_API_SECRET>` 的檔案（dev compose 的做法）。沒設定時後端只警告、不踢，舊轉接器在重連之前仍保有那台的權限。
 
 **EMQX 設定**（`emqx.conf` 或環境變數，開發環境見 `infra/docker-compose.dev.yml`）：
 ```hocon
@@ -133,12 +136,12 @@ authorization {
 - 用環境變數設定時：`EMQX_AUTHENTICATION='[{mechanism = jwt, …}]'`、`EMQX_AUTHORIZATION__NO_MATCH=deny`、`EMQX_AUTHORIZATION__SOURCES='[]'`。docker compose 裡 `${username}` 要寫成 `$${username}`。
 - 只用 dashboard 改過設定的話，`data/configs/cluster.hocon` 會留著舊值；以設定檔為準時清掉該段或重建容器。
 - 改 `EMQX_JWT_SECRET` 時 EMQX 與後端一起改、一起重啟；轉接器在下次同步（10 秒內）拿到新憑證後自動重連。
-- 後端停機超過 24 小時，轉接器的憑證會過期：已連線的不受影響，但斷線後要等後端恢復才連得回來。
+- 後端停機超過 1 小時，轉接器手上的憑證會過期：已連線的不受影響（效期只在連線時檢查），但斷線後要等後端恢復才連得回來（恢復後 10 秒內）。正式環境的後端要設自動重啟。
 - 轉接器沒有金鑰（`ADAPTER_KEY_<名稱>`）就拿不到憑證，連不上 MQTT。`MQTT_ADAPTER_USER`／`MQTT_ADAPTER_PASSWORD` 只用於 EMQX 沒開認證的環境。
-- 8883（MQTT TLS）與 18083（dashboard）不要對轉接器網段以外開放；dashboard 預設密碼（`EMQX_DASHBOARD_PASSWORD`）要改。
+- 8883（MQTT TLS）與 18083（dashboard、管理 API）不要對轉接器網段以外開放，18083 只開給後端；dashboard 預設密碼（`EMQX_DASHBOARD_PASSWORD`）要改。
 
 ## 11. 帳號與登入（安全收尾 a、b、c、d）
 - **管理員建立帳號或重設密碼後**，使用者下次登入必須先改密碼（新密碼不可與目前相同），改好之前除了改密碼與登出什麼都不能用（API 回 `PASSWORD_CHANGE_REQUIRED`）。
 - **沒有權限（403）會寫進操作日誌** `auth.forbidden`：對象是路由（例 `GET /api/v1/users/:id`），內容有實際路徑與缺少的權限。同一人同一路由 1 分鐘內只記一筆。
 - **角色管理**：不能改名、修改、刪除權限比自己高的角色；系統角色只有系統管理員能動。場域匯入時，修改既有角色也受同樣限制。
-- **閒置自動登出**：預設 30 分鐘沒有滑鼠、鍵盤、觸控就登出（「派工與充電規則」頁可改 10 分鐘～8 小時，或不自動登出）。對所有帳號、所有電腦生效；控制室大螢幕要一直顯示時改成「不自動登出」。這是登入政策，不隨場域設定包匯出入。
+- **閒置自動登出**：預設 30 分鐘沒有滑鼠、鍵盤、觸控就登出（「派工與充電規則」頁可改 10 分鐘～8 小時）。需要一直顯示的電腦（控制室大螢幕）用專用帳號，該帳號的角色在「角色管理」勾「不自動登出」（PR #16 審查第 1 點）；全站沒有「不自動登出」。這是登入政策，不隨場域設定包匯出入（角色的「不自動登出」也不匯出，換場域後要重新勾）。

@@ -18,7 +18,7 @@ export class MeController {
       user: { id: p.sub, username: p.username, displayName: p.displayName, role: { id: p.rid, name: p.roleName } },
       perms: p.perms,
       mustChangePassword: p.mustChangePassword,
-      idleMinutes: await this.settings.idleMinutes(),
+      idleMinutes: await this.settings.idleMinutes(p.noIdleLogout),
     };
   }
 }

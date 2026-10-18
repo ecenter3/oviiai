@@ -89,6 +89,7 @@ describe('AuthService', () => {
       enabled: true,
       lockedUntil: null,
       mustChangePassword: false,
+      noIdleLogout: false,
       roleId: 'r1',
       roleName: '警衛',
       isSystem: false,

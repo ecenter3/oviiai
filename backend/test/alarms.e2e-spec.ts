@@ -26,6 +26,7 @@ import { SettingsService } from '../src/settings/settings.service';
 import { StorageService } from '../src/storage/storage.service';
 import { FakeStorage } from './fake-storage';
 import { testMqttAuth } from './mqtt-test-auth';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -154,7 +155,7 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
     await adapter?.endAsync();
     if (db) await db.updateTable('settings').set({ value: 'true' }).where('key', '=', 'dispatch.approval').execute();
     if (app) {
-      await app.get<Redis>(REDIS).del(`robot:${CODE}`);
+      await app.get<Redis>(REDIS).del(`robot:${CODE}`, `adapter:e2e-${tag}`);
       await app.close();
     }
     if (db) {
@@ -168,6 +169,7 @@ describe.skipIf(!ready)('告警管線（e2e）', () => {
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       await db.deleteFrom('users').where('id', 'in', users).execute();
       await db.deleteFrom('roles').where('id', 'in', roles).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });

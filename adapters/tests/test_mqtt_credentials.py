@@ -87,3 +87,40 @@ def test_reconnects_with_new_credentials_when_robot_list_changes(monkeypatch):
             await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(go())
+
+
+def test_refreshes_credentials_before_reconnect_after_kick(monkeypatch):
+    """被後端踢掉（機器人改派到別的轉接器）後，重連前先向後端重取憑證（PR #16 審查第 2 點）"""
+    FakeClient.sessions = []
+    monkeypatch.setattr(bridge_mod.aiomqtt, "Client", FakeClient)
+    monkeypatch.setattr(bridge_mod, "RECONNECT_DELAY_S", 0.01)
+
+    class Kicked(FakeClient):
+        @property
+        def messages(self):
+            async def gen():
+                raise bridge_mod.aiomqtt.MqttError("kicked")
+                yield None  # pragma: no cover
+            return gen()
+
+    async def go():
+        b = Bridge("mock", "t", [MockDriver(code="B2-001", floor="1f")], "mqtt://localhost:1")
+        b.set_credentials("mock", "old", frozenset({"B2-001", "B2-002"}))
+        fetched = []
+
+        async def refresh():
+            fetched.append(1)
+            b.set_credentials("mock", f"new-{len(fetched)}", frozenset({"B2-001"}))
+
+        b.refresh_credentials = refresh
+        monkeypatch.setattr(bridge_mod.aiomqtt, "Client", Kicked)
+        task = asyncio.create_task(b.run())
+        try:
+            await until(lambda: len(FakeClient.sessions) >= 2)
+            assert FakeClient.sessions[0].password == "old"  # 第一次用手上的
+            assert FakeClient.sessions[1].password == "new-1"  # 斷線後先重取
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(go())

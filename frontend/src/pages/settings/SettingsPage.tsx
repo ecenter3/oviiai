@@ -24,8 +24,8 @@ interface RobotRow {
 
 type Values = Record<string, unknown>;
 
-/** 閒置自動登出的選項（分鐘；0＝不登出） */
-const IDLE_OPTIONS = [0, 10, 15, 30, 60, 120, 240, 480];
+/** 閒置自動登出的選項（分鐘）；「不自動登出」改在角色上設定（PR #16 審查第 1 點） */
+const IDLE_OPTIONS = [10, 15, 30, 60, 120, 240, 480];
 
 /** 回充 < 接單 < 充電完成（與後端相同） */
 export function chargeOrderOk(v: Values): boolean {
@@ -288,12 +288,12 @@ export function SettingsPage() {
                 <span>{t('settings.idleLogout.body')}</span>
               </span>
               <div className="conf-row">
-                <select aria-label={t('settings.idleLogout')} value={num('auth.idleMinutes')} onChange={(e) => set('auth.idleMinutes', Number(e.target.value))}>
-                  {[...new Set([...IDLE_OPTIONS, num('auth.idleMinutes')])]
+                <select aria-label={t('settings.idleLogout')} value={num('auth.idleMinutes') || 30} onChange={(e) => set('auth.idleMinutes', Number(e.target.value))}>
+                  {[...new Set([...IDLE_OPTIONS, num('auth.idleMinutes') || 30])]
                     .sort((a, b) => a - b)
                     .map((n) => (
                       <option key={n} value={n}>
-                        {n ? t('settings.minutes', { n }) : t('settings.idleLogout.off')}
+                        {t('settings.minutes', { n })}
                       </option>
                     ))}
                 </select>

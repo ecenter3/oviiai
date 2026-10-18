@@ -62,6 +62,7 @@ fill_secret() {  # $1 變數名 $2 產生的值
   ok "已產生 .env 的 $1"
 }
 fill_secret EMQX_JWT_SECRET "$(openssl rand -hex 32)"
+fill_secret EMQX_API_SECRET "$(openssl rand -hex 24)"
 fill_secret ADAPTER_KEY_MOCK "$(openssl rand -hex 24)"
 fill_secret DATA_ENC_KEY "$(openssl rand -hex 32)"
 
