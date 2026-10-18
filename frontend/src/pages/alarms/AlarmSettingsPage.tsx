@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import { LevelTag } from '../../components/AlarmTags';
+import { EnvThresholds } from '../../components/EnvThresholds';
 import { t, type MessageKey } from '../../i18n';
 import type { AlarmCategory } from '../../stores/alarms';
 import { useToast } from '../../stores/toast';
@@ -27,6 +28,7 @@ interface RuleUser {
 /**
  * 告警設置（/alarms/settings，原型「告警設置」）。手冊以告警項目為單位（alarm_rules）：
  * 各項目的等級、音效提醒、彈窗提醒、處理事件（需處理）、合併秒數、簡訊接收人（穿梭框）。
+ * 下方是環境數值門檻（T-41，與環境監測頁側欄共用）。
  */
 export function AlarmSettingsPage() {
   const qc = useQueryClient();
@@ -164,6 +166,9 @@ export function AlarmSettingsPage() {
                 {t('common.save')}
               </button>
             </div>
+            <h3 className="vs-h">{t('alarmset.envTitle')}</h3>
+            <p className="hint">{t('alarmset.envHint')}</p>
+            <EnvThresholds />
           </div>
         </div>
       </section>

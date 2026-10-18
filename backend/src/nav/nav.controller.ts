@@ -61,7 +61,7 @@ const target = (kind: string) => (req: Request, res?: unknown) =>
 /**
  * 導航管理後端（T-23）：興趣點（含待命點）、特殊區域、路徑。介面規格 CRUD /pois、/zones、/paths，權限 nav。
  * 讀取放寬：派工與監控頁要選興趣點、畫路徑；GET /pois 在 MapObjectsController。
- * 被任務範本、進行中的任務或巡邏排程引用的興趣點與路徑不可刪（409）。
+ * 被任務範本、進行中的任務、巡邏排程或定點檢測點引用的興趣點與路徑不可刪（409）。
  */
 @Controller()
 export class NavController {
@@ -88,7 +88,7 @@ export class NavController {
     const cur = await this.db.selectFrom('pois').selectAll().where('id', '=', id).executeTakeFirst();
     if (!cur) throw new AppError('NOT_FOUND', '找不到興趣點');
     if (b.floorId !== undefined && b.floorId !== cur.floor_id && (await this.poiRefs(id)).length) {
-      throw new AppError('INVALID_STATE', '興趣點被任務範本或進行中的任務使用，不能換樓層');
+      throw new AppError('INVALID_STATE', '興趣點被任務範本、進行中的任務或定點檢測點使用，不能換樓層');
     }
     await this.checkPoints(b.floorId ?? cur.floor_id, [{ x: b.x ?? cur.x, y: b.y ?? cur.y }]);
     return this.db
@@ -244,7 +244,8 @@ export class NavController {
   private async poiRefs(id: string): Promise<string[]> {
     const tpl = await this.db.selectFrom('task_templates').select('name').where(sql<string>`target->>'poiId'`, '=', id).execute();
     const tasks = await this.db.selectFrom('tasks').select('code').where(sql<string>`target->>'poiId'`, '=', id).where('status', 'in', [...ACTIVE]).execute();
-    return [...tpl.map((t) => `任務範本「${t.name}」`), ...tasks.map((t) => `任務 ${t.code}`)];
+    const point = await this.db.selectFrom('inspection_points').select('id').where('poi_id', '=', id).executeTakeFirst();
+    return [...tpl.map((t) => `任務範本「${t.name}」`), ...tasks.map((t) => `任務 ${t.code}`), ...(point ? ['定點檢測點'] : [])];
   }
 
   private async pathRefs(id: string): Promise<string[]> {

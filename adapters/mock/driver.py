@@ -21,6 +21,8 @@ from common.contracts import Battery, Command, Pose, RobotEvent, Telemetry, Tele
 from common.driver import CommandError, RobotDriver, split_params
 from common.transform import Affine2D
 
+from .env import EnvSim
+
 TICK_S = 0.1
 #: 按鍵說話音檔下載上限（後端收 5 MB；PR #15 審查第 1 點）
 SPEAK_MAX_BYTES = 10 * 1024 * 1024
@@ -92,7 +94,8 @@ class MockDriver(RobotDriver):
     def __init__(self, code: str, floor: str, x: float = 0.0, y: float = 0.0, battery: float = 80.0,
                  speed: float = 1.0, dock: dict[str, float] | None = None, fail_rate: float = 0.0,
                  teleop: bool = True, drain_per_m: float = 0.05, charge_rate: float = 0.5,
-                 to_robot: Affine2D | None = None):
+                 to_robot: Affine2D | None = None, sensors: list[str] | None = None,
+                 env_spike_every_s: float = 3600.0):
         super().__init__(code, floor, to_robot)
         # 模擬器在「機器人地圖座標」裡移動，回報時換成平台座標（與真機轉接器相同）；
         # 參數給的初始位置是平台座標
@@ -128,6 +131,8 @@ class MockDriver(RobotDriver):
         self.spoken: list[dict[str, Any]] = []
         #: 螢幕上顯示的警示圖（show_image；模擬器只記錄）
         self.screen: dict[str, Any] | None = None
+        #: 環境感測器（T-41）：遙測 sensors 帶溫濕度、氣體等數值，偶爾超標
+        self.env = EnvSim(sensors, floor, env_spike_every_s) if sensors else None
         if teleop:
             self.capabilities = self.capabilities | {"teleop"}
 
@@ -186,6 +191,7 @@ class MockDriver(RobotDriver):
             battery=Battery(pct=round(self.battery, 1), charging=self.state == "charging",
                             voltage=self._voltage(), current=self._current()),
             state=self.state, speed=round(self.speed, 2), taskRef=self.task_ref,
+            sensors=self.env.read(px, py) if self.env else None,
         )
 
     async def validate(self, cmd: Command) -> None:
@@ -289,6 +295,10 @@ class MockDriver(RobotDriver):
         if t == "upload_logs":
             sub = str(cmd.args["subsystem"])
             body = self._fake_log(sub).encode("utf-8")
+            max_bytes = cmd.args.get("maxBytes")
+            if isinstance(max_bytes, int) and len(body) > max_bytes:
+                # 真機轉接器應先壓縮或只取最近的部分；放不下就回報失敗，不要硬傳
+                raise CommandError("TOO_LARGE", f"log is {len(body)} bytes, limit {max_bytes}")
             await asyncio.to_thread(upload, str(cmd.args["url"]), body, "text/plain; charset=utf-8")
             log.info("%s 已上傳 %s 日誌 %d bytes", self.code, sub, len(body))
             return {"bytes": len(body)}

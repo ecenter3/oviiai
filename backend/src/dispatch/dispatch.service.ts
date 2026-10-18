@@ -12,7 +12,7 @@ import { RobotRegistry } from '../fleet/robot-registry';
 import type { FleetEvent, RobotInfo } from '../fleet/types';
 import { REDIS } from '../redis/redis.module';
 import { SettingsService } from '../settings/settings.service';
-import { type Candidate, pickPreemptVictim, planRound, type QueuedTask } from './pick-robot';
+import { type Candidate, pickPreemptVictim, planRound, type QueuedTask, requiredCapsOf } from './pick-robot';
 import { approvalOn, ENDED, OCCUPYING, taipeiDate } from './task-state';
 import { type PauseReason, TasksService, type TaskView } from './tasks.service';
 
@@ -207,7 +207,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
         robotId: t.robotId,
         pinnedRobot: t.pinnedRobot,
         target,
-        requiredCaps: [],
+        requiredCaps: requiredCapsOf(t.kind),
         reservedUntil: t.progress.reservedUntil ?? null,
       });
     }

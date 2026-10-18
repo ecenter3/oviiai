@@ -16,7 +16,7 @@ def test_known_robot_uses_yaml_defaults_but_backend_floor():
 
 def test_new_robot_placed_next_to_its_charger():
     spec = driver_spec({"code": "B2-003", "floor": "1f", "chargers": [{"x": 1, "y": 3}]}, DEFAULTS)
-    assert spec == {"code": "B2-003", "floor": "1f", "x": 3.0, "y": 3.0, "battery": 80, "speed": 1.0, "dock": {"x": 1.0, "y": 3.0}, "to_robot": Affine2D()}
+    assert spec == {"code": "B2-003", "floor": "1f", "x": 3.0, "y": 3.0, "battery": 80, "speed": 1.0, "dock": {"x": 1.0, "y": 3.0}, "to_robot": Affine2D(), "sensors": ["temp", "humidity"]}
     MockDriver(**spec)  # 參數 MockDriver 都接受
 
 

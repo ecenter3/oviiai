@@ -33,6 +33,15 @@ export interface RobotInfo {
   brand: string;
 }
 
+/** 一筆遙測的感測器數值（平台座標、量測時間 ms） */
+export interface SensorSample {
+  robot: RobotInfo;
+  at: number;
+  x: number;
+  y: number;
+  sensors: Record<string, { value: number; unit: string }>;
+}
+
 export type OfflineReason = 'telemetry_timeout' | 'adapter_reported' | 'adapter_down';
 
 /** fleet 對外事件；告警管線（T-21）訂閱 offline 發系統告警，派工（T-16）據此暫停任務 */

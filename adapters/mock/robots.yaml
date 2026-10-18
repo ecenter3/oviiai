@@ -1,8 +1,9 @@
 # 模擬機器人：三個品牌各 2 台。代碼與正式機相同格式，方便前後端開發。
+# sensors：模擬的環境感測器（T-41），env_spike_every_s：平均多少秒超標一次（0 不超標）
 robots:
-  - {code: B2-001, floor: 1f, x: 2, y: 2, battery: 85, speed: 1.2, dock: {x: 1, y: 1}}
-  - {code: B2-002, floor: 1f, x: 10, y: 4, battery: 35, speed: 1.2, dock: {x: 1, y: 3}}
-  - {code: X30-001, floor: 2f, x: 3, y: 5, battery: 70, speed: 1.0, dock: {x: 1, y: 1}, teleop: false}
-  - {code: X30-002, floor: 2f, x: 20, y: 8, battery: 95, speed: 1.0, dock: {x: 1, y: 3}, teleop: false, fail_rate: 0.1}
-  - {code: ANBOT-001, floor: b1, x: 5, y: 5, battery: 60, speed: 0.8, dock: {x: 2, y: 2}}
-  - {code: ANBOT-002, floor: b1, x: 30, y: 12, battery: 22, speed: 0.8, dock: {x: 2, y: 6}}
+  - {code: B2-001, floor: 1f, x: 2, y: 2, battery: 85, speed: 1.2, dock: {x: 1, y: 1}, sensors: [temp, humidity, noise]}
+  - {code: B2-002, floor: 1f, x: 10, y: 4, battery: 35, speed: 1.2, dock: {x: 1, y: 3}, sensors: [temp, humidity, noise]}
+  - {code: X30-001, floor: 2f, x: 3, y: 5, battery: 70, speed: 1.0, dock: {x: 1, y: 1}, teleop: false, sensors: [temp, humidity, co, ch4, h2s, o2]}
+  - {code: X30-002, floor: 2f, x: 20, y: 8, battery: 95, speed: 1.0, dock: {x: 1, y: 3}, teleop: false, fail_rate: 0.1, sensors: [temp, humidity, co, ch4, h2s, o2]}
+  - {code: ANBOT-001, floor: b1, x: 5, y: 5, battery: 60, speed: 0.8, dock: {x: 2, y: 2}, sensors: [temp, humidity, co, pm25, smoke]}
+  - {code: ANBOT-002, floor: b1, x: 30, y: 12, battery: 22, speed: 0.8, dock: {x: 2, y: 6}, sensors: [temp, humidity, co, pm25, smoke]}

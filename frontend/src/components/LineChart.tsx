@@ -31,6 +31,15 @@ const fmtN = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : String(+v.toFix
 
 const hm = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false });
 const hms = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const parts = (f: Intl.DateTimeFormat, d: Date) => Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+const mdhm = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+/** 跨日的圖：刻度、提示標日期（MM-DD HH:mm，原型的環境監測） */
+const dayFmt = {
+  format: (d: Date) => {
+    const p = parts(mdhm, d);
+    return `${p.month}-${p.day} ${p.hour}:${p.minute}`;
+  },
+};
 
 /**
  * 單一數列的折線圖（原型 lineChart）：細線＋淡色面積、刻度格線、時間軸，滑過顯示十字線與數值。
@@ -46,6 +55,10 @@ export function LineChart(props: {
   yMax?: number;
   gapMs?: number;
   height?: number;
+  /** 閾值：畫紅色虛線（環境監測） */
+  limits?: { min?: number | null; max?: number | null };
+  /** 超標點：畫紅點（例：時間桶內的最高值超過上限） */
+  alerts?: ChartPoint[];
 }) {
   const { points, domain, unit, color } = props;
   const H = props.height ?? 230;
@@ -56,8 +69,10 @@ export function LineChart(props: {
 
   const geo = useMemo(() => {
     const vals = points.filter((p) => p.v != null).map((p) => p.v!) as number[];
-    let lo = props.yMin ?? (vals.length ? Math.min(...vals) : 0);
-    let hi = props.yMax ?? (vals.length ? Math.max(...vals) : 1);
+    const extra = [...(props.alerts ?? []).map((p) => p.v), props.limits?.min, props.limits?.max].filter((v): v is number => v != null);
+    const all = vals.length ? [...vals, ...extra] : [];
+    let lo = props.yMin ?? (all.length ? Math.min(...all) : 0);
+    let hi = props.yMax ?? (all.length ? Math.max(...all) : 1);
     if (hi - lo < 1e-6) {
       hi += 1;
       lo -= 1;
@@ -81,10 +96,10 @@ export function LineChart(props: {
     }
     if (cur.length) segs.push(cur);
     const span = t1 - t0;
-    const fmt = span <= 10 * 60_000 ? hms : hm;
+    const fmt = span <= 10 * 60_000 ? hms : span > 36 * 3_600_000 ? dayFmt : hm;
     const xTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ x: L + f * iw, label: fmt.format(new Date(t0 + span * f)) }));
     return { ticks, X, Y, base, segs, xTicks, empty: !vals.length };
-  }, [points, domain, props.yMin, props.yMax, props.gapMs, iw, ih]);
+  }, [points, domain, props.yMin, props.yMax, props.gapMs, props.alerts, props.limits, iw, ih]);
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
     const svg = svgRef.current;
@@ -131,7 +146,7 @@ export function LineChart(props: {
             </g>
           ))}
           {geo.xTicks.map((x, i) => (
-            <text key={x.x} x={x.x} y={H - 9} className="ch-x" textAnchor={i === 0 ? 'start' : i === geo.xTicks.length - 1 ? 'end' : 'middle'}>
+            <text key={x.x} x={x.x} y={H - 9} className="ch-x" style={{ textAnchor: i === 0 ? 'start' : i === geo.xTicks.length - 1 ? 'end' : 'middle' }}>
               {x.label}
             </text>
           ))}
@@ -147,6 +162,18 @@ export function LineChart(props: {
               </g>
             );
           })}
+          {!geo.empty &&
+            ([props.limits?.max, props.limits?.min].filter((v) => v != null) as number[]).map((v) => (
+              <g key={`lim${v}`} className="ch-limit">
+                <line x1={L} x2={W - R} y1={geo.Y(v)} y2={geo.Y(v)} />
+                <text x={W - R - 4} y={geo.Y(v) - 4} textAnchor="end">
+                  {t('chart.limit', { v: fmtN(v) })}
+                </text>
+              </g>
+            ))}
+          {(props.alerts ?? []).map((p) =>
+            p.v == null ? null : <circle key={`al${p.t}`} className="ch-alert" cx={geo.X(p.t)} cy={geo.Y(p.v)} r={3.5} />,
+          )}
           {hp && hp.v != null && (
             <g className="ch-hover">
               <line x1={geo.X(hp.t)} x2={geo.X(hp.t)} y1={T} y2={T + ih} />
@@ -159,7 +186,7 @@ export function LineChart(props: {
             <b>
               {fmtN(hp.v)} {unit}
             </b>
-            <span>{hms.format(new Date(hp.t))}</span>
+            <span>{(domain[1] - domain[0] > 36 * 3_600_000 ? dayFmt : hms).format(new Date(hp.t))}</span>
           </div>
         )}
         {geo.empty && <p className="ch-empty">{t('chart.empty')}</p>}

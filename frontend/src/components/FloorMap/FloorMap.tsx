@@ -83,6 +83,8 @@ export interface MapMark {
   label: string;
   tone?: 'ok' | 'warn' | 'bad' | 'draft';
   title?: string;
+  /** 標在圓點右邊的文字（數值、名稱）；有 caption 時圓點縮小、不放 label */
+  caption?: string;
 }
 export interface MapAlarm {
   id: string;
@@ -364,8 +366,14 @@ export const FloorMap = forwardRef<FloorMapHandle, FloorMapProps>(function Floor
           return (
             <g key={m.id} className={`fm-mark ${m.tone ?? 'ok'}`} transform={`translate(${s.x} ${s.y})`}>
               {m.title && <title>{m.title}</title>}
-              <circle r={9} />
-              <text y={3.5}>{m.label}</text>
+              <circle r={m.caption ? 6 : 9} />
+              {m.caption ? (
+                <text className="fm-cap" x={10} y={4}>
+                  {m.caption}
+                </text>
+              ) : (
+                <text y={3.5}>{m.label}</text>
+              )}
             </g>
           );
         })}

@@ -40,7 +40,7 @@ ADAPTER = "mock"
 
 def driver_spec(robot: dict[str, Any], defaults: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """後端設定的一台 → MockDriver 參數。yaml 有這台就用 yaml 的位置與參數；
-    新的機器人放在同樓層第一座同品牌充電樁旁 2 公尺，電量 80%，充電樁座標當回充點。"""
+    新的機器人放在同樓層第一座同品牌充電樁旁 2 公尺，電量 80%，充電樁座標當回充點，有溫濕度感測器。"""
     code = robot["code"]
     if code in defaults:
         spec = dict(defaults[code])
@@ -50,7 +50,7 @@ def driver_spec(robot: dict[str, Any], defaults: dict[str, dict[str, Any]]) -> d
     chargers = robot.get("chargers") or []
     dock = {"x": float(chargers[0]["x"]), "y": float(chargers[0]["y"])} if chargers else {"x": 5.0, "y": 5.0}
     return {"code": code, "floor": robot["floor"], "x": dock["x"] + 2, "y": dock["y"], "battery": 80,
-            "speed": 1.0, "dock": dock, "to_robot": transform_of(robot)}
+            "speed": 1.0, "dock": dock, "to_robot": transform_of(robot), "sensors": ["temp", "humidity"]}
 
 
 def plan_sync(current: set[str], robots: list[dict[str, Any]],
@@ -90,11 +90,11 @@ async def amain(cfg: dict[str, Any]) -> None:
     key = adapter_key(ADAPTER)
     base = backend_url()
     drivers: list[MockDriver]
-    cfg: dict[str, Any] | None = None
+    remote: dict[str, Any] | None = None
     if key:
         try:
-            cfg = await asyncio.to_thread(fetch_adapter_config, base, ADAPTER, key)
-            drivers = [MockDriver(**driver_spec(r, defaults)) for r in cfg["robots"]]
+            remote = await asyncio.to_thread(fetch_adapter_config, base, ADAPTER, key)
+            drivers = [MockDriver(**driver_spec(r, defaults)) for r in remote["robots"]]
             log.info("從後端取得 %d 台機器人設定", len(drivers))
         except Exception as e:
             log.warning("取不到轉接器設定（%s），改用 robots.yaml", e)
@@ -103,8 +103,8 @@ async def amain(cfg: dict[str, Any]) -> None:
         drivers = [MockDriver(**r) for r in cfg["robots"]]
     bridge = Bridge(ADAPTER, "0.2.0", drivers, os.getenv("MQTT_URL", "mqtt://localhost:1883"),
                     os.getenv("MQTT_ADAPTER_USER"), os.getenv("MQTT_ADAPTER_PASSWORD"))
-    if cfg:
-        apply_mqtt_credentials(bridge, cfg)
+    if remote:
+        apply_mqtt_credentials(bridge, remote)
     if key:
         bridge.refresh_credentials = credentials_refresher(bridge, base, ADAPTER, key)
     tasks = [asyncio.create_task(bridge.run())]

@@ -203,6 +203,40 @@ export interface RobotLogsTable {
   uploaded_at: Timestamp | null;
 }
 
+export interface EnvReadingsTable {
+  at: Timestamp;
+  robot_id: string;
+  floor_id: string | null;
+  x: number | null;
+  y: number | null;
+  kind: string;
+  value: number;
+  unit: string;
+  point_id: string | null;
+}
+
+export interface EnvThresholdsTable {
+  kind: string;
+  name: string;
+  unit: string;
+  min: number | null;
+  max: number | null;
+  alarm_type: string | null;
+  sort: ColumnType<number, number | undefined, number>;
+  updated_by: string | null;
+  updated_at: ColumnType<Date, Date | string | undefined, Date | string>;
+}
+
+export interface InspectionPointsTable {
+  id: Generated<string>;
+  poi_id: string;
+  freq: ColumnType<'pass' | '1h' | '4h', 'pass' | '1h' | '4h' | undefined, 'pass' | '1h' | '4h'>;
+  radius_m: ColumnType<number, number | undefined, number>;
+  enabled: ColumnType<boolean, boolean | undefined, boolean>;
+  created_by: string | null;
+  created_at: ColumnType<Date, never, never>;
+}
+
 export interface PoisTable {
   id: Generated<string>;
   floor_id: string;
@@ -357,6 +391,9 @@ export interface DB {
   robot_daily_stats: RobotDailyStatsTable;
   broadcast_assets: BroadcastAssetsTable;
   robot_logs: RobotLogsTable;
+  env_readings: EnvReadingsTable;
+  env_thresholds: EnvThresholdsTable;
+  inspection_points: InspectionPointsTable;
   zones: ZonesTable;
   media: MediaTable;
   robot_map_calib: RobotMapCalibTable;

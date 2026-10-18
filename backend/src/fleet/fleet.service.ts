@@ -9,7 +9,7 @@ import { REDIS } from '../redis/redis.module';
 import { SettingsService } from '../settings/settings.service';
 import { RobotRegistry } from './robot-registry';
 import { TelemetryWriter } from './telemetry-writer';
-import type { FleetEvent, LiveState, OfflineReason, RobotInfo } from './types';
+import type { FleetEvent, LiveState, OfflineReason, RobotInfo, SensorSample } from './types';
 
 /** WebSocket 每台每秒最多 2 則（後端邏輯 §1：節流 500 ms） */
 export const WS_THROTTLE_MS = 500;
@@ -44,6 +44,8 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
   readonly out$ = new Subject<WsOut>();
   /** 給告警（T-21）、派工（T-16） */
   readonly events$ = new Subject<FleetEvent>();
+  /** 遙測帶 sensors 時（環境監測 T-41） */
+  readonly sensors$ = new Subject<SensorSample>();
 
   constructor(
     private readonly registry: RobotRegistry,
@@ -157,6 +159,9 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
       current: t.battery.current ?? null,
     });
     await this.save(next);
+    if (t.sensors && Object.keys(t.sensors).length) {
+      this.sensors$.next({ robot, at: at.getTime(), x: next.x, y: next.y, sensors: t.sensors });
+    }
 
     if (!prev?.online) {
       this.events$.next({ type: 'online', robot, at: now });
