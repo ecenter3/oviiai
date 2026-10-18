@@ -37,7 +37,7 @@ export interface EnergyResp {
 
 /** 原型的四張曲線：電壓、電量、耗電量、電流（顏色沿用原型） */
 const CARDS = [
-  { key: 'voltage', title: 'energy.voltage', unit: 'V', color: '#38bdf8' },
+  { key: 'voltage', title: 'energy.voltage', unit: 'V', color: '#38bdf8', yMin: 20, yMax: 60 },
   { key: 'battery', title: 'energy.battery', unit: '%', color: '#22d3ee', yMin: 0, yMax: 100 },
   { key: 'consumption', title: 'energy.consumption', unit: '%/h', color: '#a78bfa' },
   { key: 'current', title: 'energy.current', unit: 'A', color: '#fbbf24' },

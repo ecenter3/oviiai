@@ -828,13 +828,13 @@ label.arow { cursor: pointer; }
 .rl-totals { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 0; font-size: 12px; color: var(--fg-2); }
 .rl-tot { padding: 3px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 .rl-tot b { font-family: var(--font-data); color: var(--fg); margin-left: 4px; }
-.report-map { height: 360px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.report-map .floormap { height: 100%; }
+.report-map { position: relative; height: 360px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .kvt td.tone-ok { color: #86efac; } .kvt td.tone-bad { color: #fca5a5; }
 @media (max-width: 900px) { .chart-grid { grid-template-columns: minmax(0, 1fr); } }
 /* 任務報告列印：只印報告本身，白底黑字 */
 @media print {
-  body:has(.report-print) .app { display: none; }
+  body:has(.report-print) { background: #fff; }
+  body:has(.report-print) > :not(.report-print) { display: none; }
   .report-print { position: static; background: #fff; padding: 0; display: block; }
   .report-print .modal { width: 100%; max-height: none; border: 0; box-shadow: none; background: #fff; color: #111; padding: 0; }
   .report-print .kvt th, .report-print .kvt td { color: #111; background: #fff; border-color: #999; }

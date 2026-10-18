@@ -101,9 +101,13 @@ export class ReportsService {
       SELECT time_bucket(make_interval(secs => ${bucketSec}), at) AS t,
              avg(battery)::real AS battery, avg(voltage)::real AS voltage, avg(current)::real AS current, bool_or(charging) AS charging
       FROM telemetry
-      WHERE robot_id = ${robot.id} AND at >= ${r.from} AND at < ${r.to}
+      WHERE robot_id = ${robot.id} AND at >= ${new Date(r.from.getTime() - CONS_WINDOW_MS)} AND at < ${r.to}
       GROUP BY t ORDER BY t`.execute(this.db);
-    const points = withConsumption(rows.rows.map((x) => ({ t: new Date(x.t).getTime(), battery: x.battery, voltage: x.voltage, current: x.current, charging: !!x.charging })));
+    // 往前多讀 5 分鐘只為了推算耗電量（短區間，例：實時 1 分鐘，才不會一開始都是 0）；回傳只留區間內的點
+    const fromMs = r.from.getTime();
+    const points = withConsumption(rows.rows.map((x) => ({ t: new Date(x.t).getTime(), battery: x.battery, voltage: x.voltage, current: x.current, charging: !!x.charging }))).filter(
+      (p) => Date.parse(p.at) >= fromMs - bucketSec * 1000,
+    );
 
     const sessions = await this.db
       .selectFrom('charge_sessions as s')

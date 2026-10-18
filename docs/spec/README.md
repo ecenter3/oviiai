@@ -33,6 +33,10 @@
 | `.env` 的 `MQTT_API_USER`／`MQTT_API_PASSWORD`（EMQX 帳密） | EMQX 以 JWT 認證，`EMQX_JWT_SECRET` 與後端共用；後端自己簽（帳號 `backend`），轉接器的憑證由 `GET /adapter-config/{name}` 核發，權限只含自己的機器人主題 | 各轉接器各一組帳號，不能互相冒用（安全收尾 e；deploy.md 第 10 節） |
 | 事件類型 | 多 `talk_failed`（轉接器拉對講音訊失敗或中斷） | PR #15 審查第 3 點 |
 | 錯誤碼 | 多 `PASSWORD_CHANGE_REQUIRED`（403，管理員建立帳號或重設密碼後須先改密碼） | 安全收尾 a |
+| 遙測電池欄位 `pct`、`charging`、`voltage` | 多 `current`（安培，充電為正）；telemetry 表加 `voltage`、`current` 欄位 | T-39 能耗頁的電壓、電流曲線（原型有）；SDK 沒提供就不填 |
+| 能耗頁資料來源寫 `stats` | 新增 `GET /energy/:robotId`（曲線＋充電紀錄與統計）；任務報告 `GET /reports/tasks`、`/reports/tasks/:id`；運行日誌 `GET /runlog/:robotId`；`GET /robots/:id/track` 依介面規格 | `/stats/summary` 留給數據統計頁（T-40） |
+| 閒置登出（安全收尾 d） | 「不自動登出」在角色上設定（`roles.no_idle_logout`），全站 `auth.idleMinutes` 只管 5～480 分鐘 | PR #16 審查第 1 點 |
+| MQTT 憑證效期 | 轉接器 1 小時；機器人改派、停用時後端以 EMQX 管理 API 踢掉舊轉接器（`EMQX_API_KEY`／`EMQX_API_SECRET`） | PR #16 審查第 2 點 |
 
 ## 機器人 SDK 實況（2026-10-15 讀過原始碼）
 

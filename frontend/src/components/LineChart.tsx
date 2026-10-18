@@ -130,8 +130,8 @@ export function LineChart(props: {
               </text>
             </g>
           ))}
-          {geo.xTicks.map((x) => (
-            <text key={x.x} x={x.x} y={H - 9} className="ch-x">
+          {geo.xTicks.map((x, i) => (
+            <text key={x.x} x={x.x} y={H - 9} className="ch-x" textAnchor={i === 0 ? 'start' : i === geo.xTicks.length - 1 ? 'end' : 'middle'}>
               {x.label}
             </text>
           ))}
@@ -143,6 +143,7 @@ export function LineChart(props: {
               <g key={i}>
                 <path d={`${d}L${geo.X(z.t).toFixed(1)},${geo.base.toFixed(1)}L${geo.X(a.t).toFixed(1)},${geo.base.toFixed(1)}Z`} fill={color} opacity={0.13} />
                 <path d={d} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+                {i === geo.segs.length - 1 && <circle cx={geo.X(z.t)} cy={geo.Y(z.v!)} r={3.5} fill={color} />}
               </g>
             );
           })}

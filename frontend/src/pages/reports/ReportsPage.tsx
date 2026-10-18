@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../../api/client';
 import { FloorMap, type MapMark } from '../../components/FloorMap/FloorMap';
 import { formatTime, t } from '../../i18n';
@@ -228,7 +229,8 @@ function ReportDialog(props: { id: string; view: 'report' | 'path'; floors: Floo
       ]
     : [];
   const title = r ? t(props.view === 'report' ? 'report.title' : 'report.pathTitle', { name: taskName(r) }) : t('common.loading');
-  return (
+  // 放在 body 底下：列印時整個版面（.app）隱藏，只印報告
+  return createPortal(
     <div className="modal-bg report-print" onKeyDown={(e) => e.key === 'Escape' && props.onClose()}>
       <div className="modal wide2 report-dlg" role="dialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
@@ -280,7 +282,8 @@ function ReportDialog(props: { id: string; view: 'report' | 'path'; floors: Floo
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
