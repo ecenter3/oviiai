@@ -14,6 +14,10 @@ import { ReportsPage } from './pages/reports/ReportsPage';
 import { RunlogPage } from './pages/reports/RunlogPage';
 import { StatsPage } from './pages/reports/StatsPage';
 import { HistoryPage } from './pages/reports/HistoryPage';
+import { AssetsPage } from './pages/tools/AssetsPage';
+import { HelpPage } from './pages/tools/HelpPage';
+import { LogsPage } from './pages/tools/LogsPage';
+import { VersionsPage } from './pages/tools/VersionsPage';
 import { CapturesPage, RecordsPage } from './pages/media/MediaPages';
 import { NavPage } from './pages/nav/NavPage';
 import { AlarmSettingsPage } from './pages/alarms/AlarmSettingsPage';
@@ -43,6 +47,10 @@ const IMPLEMENTED: Record<string, () => JSX.Element> = {
   '/runlog': RunlogPage,
   '/stats': StatsPage,
   '/history': HistoryPage,
+  '/media': AssetsPage,
+  '/logs': LogsPage,
+  '/versions': VersionsPage,
+  '/help': HelpPage,
   '/maps': MapsPage,
   '/nav': NavPage,
   '/captures': CapturesPage,

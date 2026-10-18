@@ -914,3 +914,32 @@ label.arow { cursor: pointer; }
 .hv-ev.alarm { border-color: rgba(239,68,68,.45); }
 .hv-ev.alarm span:last-child { color: #fca5a5; }
 .hv-ev.on { border-color: var(--accent); background: rgba(25,180,255,.12); }
+
+/* ===== T-42 音視頻、日誌、版本管理、幫助中心（原型） ===== */
+.robot-picks { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); }
+.robot-picks .check { gap: 8px; }
+.asset-x td { background: rgba(25,180,255,.05); }
+.asset-x audio { width: min(420px, 100%); }
+.asset-x img { max-width: min(420px, 100%); max-height: 240px; border-radius: 4px; background: #000; }
+.asset-x p { white-space: pre-wrap; color: var(--fg); }
+.text-form { display: flex; flex-direction: column; gap: 8px; }
+.text-form textarea { width: 100%; padding: 7px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; resize: vertical; }
+.vs-body { display: flex; flex-direction: column; gap: 8px; }
+.vs-h { font-size: 14px; color: var(--fg); margin-top: 6px; }
+.dtbl td.muted { color: var(--fg-3); }
+.help-page .help-top { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 14px 10px; }
+.help-page .help-top h2 { font-size: 18px; color: var(--fg); }
+.help-search { display: flex; width: min(720px, 100%); }
+.help-search input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 4px 0 0 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font-size: 13px; }
+.help-search button { padding: 0 18px; border: 0; border-radius: 0 4px 4px 0; background: #1d6ff2; color: #fff; cursor: pointer; }
+.help-page .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 10px; }
+.help-page .chips button { padding: 5px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg-2); font-size: 12px; cursor: pointer; }
+.help-page .chips button.on { background: #1d6ff2; border-color: #1d6ff2; color: #fff; }
+.help-page .chips-n { margin-left: auto; align-self: center; font-size: 12px; color: var(--fg-3); }
+.hcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; padding: 0 14px 14px; }
+.hcard { position: relative; min-height: 120px; padding: 34px 14px 14px; border-radius: 6px; border: 1px solid rgba(25,180,255,.35); background: var(--card); text-align: left; color: var(--fg); cursor: pointer; }
+.hcard:hover { border-color: var(--accent); }
+.hcard .cat { position: absolute; top: 0; left: 0; padding: 3px 14px 3px 10px; background: #1d6ff2; color: #fff; font-size: 11px; clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+.hcard b { display: block; font-size: 14px; margin-bottom: 6px; }
+.hcard span { font-size: 12px; color: var(--fg-3); line-height: 1.6; }
+.steps { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--fg); line-height: 1.6; }
