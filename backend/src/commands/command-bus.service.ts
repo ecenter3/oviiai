@@ -7,6 +7,7 @@ import { AppError } from '../common/errors';
 import { WarnOnce } from '../common/warn-once';
 import type { RobotInfo } from '../fleet/types';
 import { MqttService } from '../mqtt/mqtt.service';
+import { RobotRegistry } from '../fleet/robot-registry';
 import { REDIS } from '../redis/redis.module';
 import { SettingsService } from '../settings/settings.service';
 
@@ -73,6 +74,7 @@ export class CommandBus implements OnModuleInit, OnModuleDestroy {
     private readonly mqtt: MqttService,
     private readonly settings: SettingsService,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly registry: RobotRegistry,
   ) {}
 
   onModuleInit() {
@@ -157,6 +159,12 @@ export class CommandBus implements OnModuleInit, OnModuleDestroy {
       if ((await this.redis.zrem(PENDING, cmdId)) === 0) continue;
       const rec = await this.get(cmdId);
       if (!rec || rec.status !== 'sent') continue;
+      // 機器人已刪除或停用（例：測試結束清掉的機器人、停用前送出的指令）：不判逾時、不產生告警，紀錄直接移除
+      if (!(await this.registry.resolveId(rec.robotId))) {
+        await this.redis.del(key(cmdId));
+        this.log.debug(`${rec.code} 已不在登記清單，移除未回覆的指令 ${rec.type}（${cmdId}）`);
+        continue;
+      }
       const next: CmdRecord = {
         ...rec,
         status: 'timeout',

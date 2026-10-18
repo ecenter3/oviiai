@@ -17,6 +17,7 @@ import { FleetService } from '../src/fleet/fleet.service';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { testMqttAuth } from './mqtt-test-auth';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -117,6 +118,7 @@ describe.skipIf(!ready)('座標校正（e2e）', () => {
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       await db.deleteFrom('users').where('id', 'in', users).execute();
       await db.deleteFrom('roles').where('id', 'in', roles).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });

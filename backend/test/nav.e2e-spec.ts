@@ -16,6 +16,7 @@ import { RobotRegistry } from '../src/fleet/robot-registry';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { PatrolService } from '../src/nav/patrol.service';
 import { SettingsService } from '../src/settings/settings.service';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -123,6 +124,7 @@ describe.skipIf(!ready)('導航後端與巡邏排程（e2e）', () => {
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       await db.deleteFrom('users').where('id', 'in', users).execute();
       await db.deleteFrom('roles').where('id', 'in', roles).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });

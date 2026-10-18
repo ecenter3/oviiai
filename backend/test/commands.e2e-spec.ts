@@ -20,6 +20,7 @@ import { RobotRegistry } from '../src/fleet/robot-registry';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { REDIS } from '../src/redis/redis.module';
 import { testMqttAuth } from './mqtt-test-auth';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -145,6 +146,7 @@ describe.skipIf(!ready)('指令與遙控（e2e）', () => {
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       await db.deleteFrom('users').where('id', 'in', users).execute();
       if (roles.length) await db.deleteFrom('roles').where('id', 'in', roles).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });
@@ -192,6 +194,26 @@ describe.skipIf(!ready)('指令與遙控（e2e）', () => {
     expect(res).toMatchObject({ status: 'failed', error: { code: 'ROBOT_TIMEOUT' } });
     expect((await app.get(CommandBus).get(r.body.cmdId))?.status).toBe('timeout');
     mode = 'ok';
+  });
+
+  it('機器人已刪除：未回覆的指令不判逾時、不產生失敗，紀錄移除（測試殘留、停用前送出的指令）', async () => {
+    const gone = await db
+      .insertInto('robots')
+      .values({ code: `GONE-${tag}`.toUpperCase().slice(0, 32), brand: 'unitree', model: 'B2', floor_id: '1f', adapter: 'nobody' })
+      .returning(['id', 'code'])
+      .executeTakeFirstOrThrow();
+    const reg = app.get(RobotRegistry);
+    await reg.load();
+    const bus = app.get(CommandBus);
+    const rec = await bus.send((await reg.resolveId(gone.id))!, 'set_params', {}, null);
+    await db.deleteFrom('robots').where('id', '=', gone.id).execute();
+    await reg.load();
+    const failures: string[] = [];
+    const sub = bus.failures$.subscribe((f) => failures.push(f.cmdId));
+    await bus.sweep(Date.now() + 16_000);
+    sub.unsubscribe();
+    expect(failures).not.toContain(rec.cmdId);
+    expect(await bus.get(rec.cmdId)).toBeUndefined();
   });
 
   it('權限依指令類型：只有 monitor 的人不能下指令；警衛沒有 op.dispatch 不能導航', async () => {

@@ -19,6 +19,7 @@ import { SitePackage } from '../src/site-setup/site-package';
 import { SiteTransferService } from '../src/site-setup/site-transfer.service';
 import { StorageService } from '../src/storage/storage.service';
 import { FakeStorage } from './fake-storage';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -94,6 +95,7 @@ describe.skipIf(!ready)('場域快速設定（e2e）', () => {
     await db.deleteFrom('users').where('id', 'in', users).execute();
     await db.deleteFrom('roles').where('id', 'in', roles).execute();
     await db.deleteFrom('roles').where('name', 'like', `%${tag}%`).execute();
+    await clearOrphanPendingCommands(db);
     await db.destroy();
   });
 

@@ -15,6 +15,7 @@ import { createDatabase, type Database } from '../src/db/database.module';
 import { FleetService } from '../src/fleet/fleet.service';
 import { MqttService } from '../src/mqtt/mqtt.service';
 import { testMqttAuth } from './mqtt-test-auth';
+import { clearOrphanPendingCommands } from './pending-commands';
 
 loadEnv();
 const ready = !!(process.env.DATABASE_URL && process.env.REDIS_URL && process.env.MQTT_URL);
@@ -118,6 +119,7 @@ describe.skipIf(!ready)('機器人參數（e2e，T-27）', () => {
       await db.deleteFrom('op_logs').where('user_id', 'in', users).execute();
       await db.deleteFrom('users').where('id', 'in', users).execute();
       await db.deleteFrom('roles').where('id', 'in', roles).execute();
+      await clearOrphanPendingCommands(db);
       await db.destroy();
     }
   });
