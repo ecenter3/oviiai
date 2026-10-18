@@ -96,6 +96,7 @@ describe.skipIf(!ready)('機器人管理、地圖管理（e2e）', () => {
     await pub?.endAsync();
     if (app) {
       for (const c of codes) await app.get<Redis>(REDIS).del(`robot:${c}`);
+      await app.get<Redis>(REDIS).del(`adapter:${ADAPTER}`, `adapter:${ADAPTER}-b`);
       await app.close();
     }
     if (db) {
