@@ -29,6 +29,7 @@ import { StorageModule } from './storage/storage.module';
 // 模組依工程開發手冊「後端」章節逐步加入：
 // face, reports, integrations
 import { ReportsModule } from './reports/reports.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { ReportsModule } from './reports/reports.module';
     MediaModule,
     MaintenanceModule,
     ReportsModule,
+    StatsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

@@ -162,6 +162,47 @@ export interface TaskEventsTable {
   data: ColumnType<unknown, string | null, string | null>;
 }
 
+export interface RobotDailyStatsTable {
+  day: ColumnType<string, string, string>;
+  robot_id: string;
+  distance_m: number;
+  busy_s: number;
+  charging_s: number;
+  idle_s: number;
+  fault_s: number;
+  offline_s: number;
+  computed_at: ColumnType<Date, Date | string | undefined, Date | string>;
+}
+
+export interface BroadcastAssetsTable {
+  id: Generated<string>;
+  kind: 'audio' | 'image' | 'text';
+  name: string;
+  note: string | null;
+  object_key: string | null;
+  mime: string | null;
+  size_bytes: number | null;
+  duration_ms: number | null;
+  text: string | null;
+  created_by: string | null;
+  created_at: ColumnType<Date, never, never>;
+}
+
+export interface RobotLogsTable {
+  id: Generated<string>;
+  robot_id: string;
+  subsystem: 'motion' | 'video' | 'interaction' | 'system';
+  object_key: string;
+  status: ColumnType<'requested' | 'uploaded' | 'failed', 'requested' | 'uploaded' | 'failed' | undefined, 'requested' | 'uploaded' | 'failed'>;
+  /** bigint：pg 回傳字串 */
+  size_bytes: ColumnType<string | null, number | null | undefined, number | null>;
+  error: string | null;
+  cmd_id: string | null;
+  requested_by: string | null;
+  created_at: ColumnType<Date, never, never>;
+  uploaded_at: Timestamp | null;
+}
+
 export interface PoisTable {
   id: Generated<string>;
   floor_id: string;
@@ -313,6 +354,9 @@ export interface DB {
   tasks: TasksTable;
   task_events: TaskEventsTable;
   pois: PoisTable;
+  robot_daily_stats: RobotDailyStatsTable;
+  broadcast_assets: BroadcastAssetsTable;
+  robot_logs: RobotLogsTable;
   zones: ZonesTable;
   media: MediaTable;
   robot_map_calib: RobotMapCalibTable;
