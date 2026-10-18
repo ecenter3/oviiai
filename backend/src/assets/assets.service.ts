@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { CommandBus } from '../commands/command-bus.service';
 import { AppError } from '../common/errors';
+import { sniffAudio, sniffImage } from '../common/sniff';
 import { KYSELY, type Database } from '../db/database.module';
 import { FleetService } from '../fleet/fleet.service';
 import { RobotRegistry } from '../fleet/robot-registry';
@@ -10,7 +11,7 @@ import { StorageService } from '../storage/storage.service';
 export type AssetKind = 'audio' | 'image' | 'text';
 export const AUDIO_MAX_BYTES = 10 * 1024 * 1024;
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const AUDIO_EXT: Record<string, string> = { 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/aac': 'aac' };
+const AUDIO_EXT: Record<string, string> = { 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac' };
 const IMAGE_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 /** 推送時給轉接器的下載網址效期 */
 const PUSH_URL_TTL_SEC = 300;
@@ -71,12 +72,16 @@ export class AssetsService {
     if (!ext) throw new AppError('VALIDATION_FAILED', kind === 'audio' ? '音訊只接受 mp3、wav、ogg、webm、m4a、aac' : '圖片只接受 png、jpg、gif、webp', { fields: { file: '格式不支援' } });
     if (!file.buffer.length) throw new AppError('VALIDATION_FAILED', '檔案是空的', { fields: { file: '檔案是空的' } });
     if (file.buffer.length > (kind === 'audio' ? AUDIO_MAX_BYTES : IMAGE_MAX_BYTES)) throw new AppError('VALIDATION_FAILED', kind === 'audio' ? '音訊最大 10 MB' : '圖片最大 5 MB', { fields: { file: '檔案太大' } });
-    const key = `assets/${kind}/${randomUUID()}.${ext}`;
-    await this.storage.put(key, file.buffer, mime);
+    // 依檔案內容判斷格式（PR #18 審查第 1 點）：這些檔案會推送到機器人播放或顯示，宣告與內容不符就拒收
+    const real = (kind === 'audio' ? sniffAudio : sniffImage)(file.buffer);
+    if (!real) throw new AppError('VALIDATION_FAILED', `檔案內容不是可辨識的${kind === 'audio' ? '音訊' : '圖片'}格式`, { fields: { file: '檔案內容與格式不符' } });
+    if (real.ext !== ext) throw new AppError('VALIDATION_FAILED', `檔案內容是 ${real.ext}，與宣告的 ${ext} 不符`, { fields: { file: '檔案內容與格式不符' } });
+    const key = `assets/${kind}/${randomUUID()}.${real.ext}`;
+    await this.storage.put(key, file.buffer, real.mime);
     const name = (meta.name?.trim() || file.originalname.replace(/\.[^.]+$/, '')).slice(0, 40);
     const { id } = await this.db
       .insertInto('broadcast_assets')
-      .values({ kind, name, note: meta.note ?? null, object_key: key, mime, size_bytes: file.buffer.length, duration_ms: kind === 'audio' ? (meta.durationMs ?? null) : null, created_by: userId })
+      .values({ kind, name, note: meta.note ?? null, object_key: key, mime: real.mime, size_bytes: file.buffer.length, duration_ms: kind === 'audio' ? (meta.durationMs ?? null) : null, created_by: userId })
       .returning('id')
       .executeTakeFirstOrThrow();
     return this.get(id);

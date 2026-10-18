@@ -42,7 +42,7 @@ export class MapObjectsController {
 
   /** 興趣點（派工目的地、任務範本用；kind=parking 為待命點）；新增修改在 NavController（T-23） */
   @Get('pois')
-  @RequireAnyPerm('nav', 'dispatch', 'monitor')
+  @RequireAnyPerm('nav', 'dispatch', 'monitor', 'points')
   async pois(@Query(new ZodPipe(PoiQuery)) q: z.infer<typeof PoiQuery>) {
     let query = this.db.selectFrom('pois').select(['id', 'floor_id', 'name', 'x', 'y', 'yaw', 'kind']).orderBy('floor_id').orderBy('name');
     if (q.floor) query = query.where('floor_id', '=', q.floor);

@@ -151,6 +151,8 @@ input, select { padding: 7px 10px; border-radius: 5px; border: 1px solid var(--l
 .fm-mark.warn circle { fill: var(--warn); } .fm-mark.bad circle { fill: var(--crit); } .fm-mark.draft circle { fill: #f59e0b; stroke-dasharray: 2 2; }
 .fm-mark text { font: 700 10px var(--font-data); text-anchor: middle; fill: #04121f; pointer-events: none; }
 .fm-mark.bad text { fill: #fff; }
+.fm-mark text.fm-cap { text-anchor: start; font: 700 12px var(--font-data); fill: #e6f1ff; stroke: #04121f; stroke-width: 3px; paint-order: stroke; }
+.fm-mark.bad text.fm-cap { fill: #fca5a5; }
 .fm-cam { cursor: pointer; } .fm-cam path { fill: #2f8f3a; stroke: #0a3d12; stroke-width: 1; }
 .fm-cam:hover path { fill: #46b553; }
 .fm-dock { cursor: pointer; }
@@ -804,6 +806,9 @@ label.arow { cursor: pointer; }
 .ch-hover circle { stroke: #0c1b30; stroke-width: 2; }
 .ch-tip { position: absolute; top: 6px; transform: translateX(-50%); pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(25,180,255,.45); background: rgba(8,18,32,.92); white-space: nowrap; font: 12px var(--font-data); color: var(--fg-2); }
 .ch-tip b { color: var(--fg); font-size: 13px; }
+.ch-limit line { stroke: #f87171; stroke-dasharray: 5 4; stroke-width: 1.2; }
+.ch-limit text { fill: #fca5a5; font: 10px var(--font-data); }
+.ch-alert { fill: #f87171; stroke: #0c1b30; stroke-width: 1.5; }
 .ch-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-3); font-size: 13px; pointer-events: none; }
 .en-charge h3 { font-size: 14px; margin-bottom: 10px; }
 .en-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
@@ -932,10 +937,11 @@ label.arow { cursor: pointer; }
 .help-search { display: flex; width: min(720px, 100%); }
 .help-search input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 4px 0 0 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font-size: 13px; }
 .help-search button { padding: 0 18px; border: 0; border-radius: 0 4px 4px 0; background: #1d6ff2; color: #fff; cursor: pointer; }
-.help-page .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 10px; }
-.help-page .chips button { padding: 5px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg-2); font-size: 12px; cursor: pointer; }
-.help-page .chips button.on { background: #1d6ff2; border-color: #1d6ff2; color: #fff; }
-.help-page .chips-n { margin-left: auto; align-self: center; font-size: 12px; color: var(--fg-3); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.help-page .chips { padding: 0 14px 10px; }
+.chips button { padding: 5px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg-2); font-size: 12px; cursor: pointer; }
+.chips button.on { background: #1d6ff2; border-color: #1d6ff2; color: #fff; }
+.chips-n { margin-left: auto; align-self: center; font-size: 12px; color: var(--fg-3); }
 .hcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; padding: 0 14px 14px; }
 .hcard { position: relative; min-height: 120px; padding: 34px 14px 14px; border-radius: 6px; border: 1px solid rgba(25,180,255,.35); background: var(--card); text-align: left; color: var(--fg); cursor: pointer; }
 .hcard:hover { border-color: var(--accent); }
@@ -943,3 +949,18 @@ label.arow { cursor: pointer; }
 .hcard b { display: block; font-size: 14px; margin-bottom: 6px; }
 .hcard span { font-size: 12px; color: var(--fg-3); line-height: 1.6; }
 .steps { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--fg); line-height: 1.6; }
+
+/* 環境監測、定點檢測（T-41） */
+.env-map { height: 420px; margin-top: 8px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; position: relative; }
+.dtbl td.over { color: #fca5a5; font-weight: 700; }
+.pt-vals { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.pt-vals span.over, .pt-vals span.over b { color: #fca5a5; }
+.env-th .dtbl { font-size: 13px; }
+.env-th .num-in { width: 72px; }
+.env-chips { margin: 4px 0 8px; }
+.env-th.compact .dtbl { table-layout: fixed; width: 100%; min-width: 0; }
+.env-th.compact .dtbl th, .env-th.compact .dtbl td { padding: 4px 4px; }
+.env-th.compact .dtbl th:first-child { width: 40%; }
+.env-th.compact .num-in { width: 100%; min-width: 0; padding: 4px; box-sizing: border-box; }
+.env-th.compact .save-bar { flex-wrap: wrap; justify-content: flex-end; }
+.env-th .save-bar { margin-top: 8px; }

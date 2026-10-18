@@ -39,6 +39,10 @@ export interface QueuedTask {
   reservedUntil?: number | null;
 }
 
+/** 任務種類需要的能力（環境監測、氣體檢測要有感測器）；其餘種類不限 */
+const KIND_CAPS: Record<string, string[]> = { env: ['env'], gas: ['env'] };
+export const requiredCapsOf = (kind: string): string[] => KIND_CAPS[kind] ?? [];
+
 export interface PickSettings {
   minAccept: number;
   /** 充電完成門檻：在樁上充到這個電量就視為可接任務（後端邏輯 §3：接任務時自動離樁） */

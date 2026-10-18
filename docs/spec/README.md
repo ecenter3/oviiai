@@ -41,6 +41,8 @@
 | 歷史視頻「時間軸播放」 | `GET /media/history`：只列出已有的錄影片段、抓拍與告警時間點（沒有全天候錄影） | 本平台只有手動、告警、巡邏觸發的錄影 |
 | 音視頻管理「上傳語音與警示圖」 | `/assets`（音訊、警示圖、詞條）＋推送 `POST /assets/:id/push`；新指令 `show_image`、新能力 `screen` | 手冊沒有對應 API 與指令 |
 | 日誌「日誌下載」 | `/robot-logs`：新指令 `upload_logs`（轉接器 PUT 到預簽名網址），保存 30 天 | 手冊沒有對應 API 與指令 |
+| 環境監測、定點檢測（`env_readings`） | 新表 `env_thresholds`（項目、上下限、告警類型）、`inspection_points`（興趣點＋頻率＋半徑），`env_readings` 加 `point_id`；API `/env/thresholds`、`/env/summary`、`/env/map`、`/env/points`（含 `measure`、`readings`）。遙測 `sensors` 只收門檻表列出的項目，30 秒取樣 | 手冊只有資料表；系統規格書寫「本期先預留介面」，這裡實作完整流程 |
+| 選車只看樓層、電量、狀態 | 環境監測（`env`）、氣體檢測（`gas`）任務要 `env` 能力 | 沒有感測器的機器人去量測沒有意義 |
 | 版本「韌體版本」 | `GET /versions`：後端、前端、轉接器版本；機器人韌體待 SDK，韌體上傳推送不做 | 各家 SDK 目前沒有韌體版本與 OTA 介面 |
 
 ## 機器人 SDK 實況（2026-10-15 讀過原始碼）

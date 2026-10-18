@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Candidate, eligible, pickPreemptVictim, pickRobot, planRound, type QueuedTask, queueOrder } from './pick-robot';
+import { type Candidate, eligible, pickPreemptVictim, pickRobot, planRound, type QueuedTask, queueOrder, requiredCapsOf } from './pick-robot';
 import { canTransition, initialStatus, sourcesOf } from './task-state';
 
 const S = { minAccept: 40 };
@@ -198,5 +198,16 @@ describe('在樁上但 state 仍是 idle（真機回報 charging=true，PR #8 �
   });
   it('充到 resumeAt 可接任務', () => {
     expect(eligible(robot({ state: 'idle', charging: true, battery: 92 }), task(), s)).toBe(true);
+  });
+});
+
+describe('任務種類需要的能力（T-41）', () => {
+  it('環境監測、氣體檢測要 env 能力；其他種類不限', () => {
+    expect(requiredCapsOf('env')).toEqual(['env']);
+    expect(requiredCapsOf('gas')).toEqual(['env']);
+    expect(requiredCapsOf('inspect')).toEqual([]);
+    const t = task({ requiredCaps: requiredCapsOf('gas') });
+    expect(eligible(robot({ caps: [] }), t, S)).toBe(false);
+    expect(eligible(robot({ caps: ['ptz', 'env'] }), t, S)).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { sql, type Transaction } from 'kysely';
 import { Subject } from 'rxjs';
+import { requiredCapsOf } from './pick-robot';
 import { AppError } from '../common/errors';
 import { PG_UNIQUE_VIOLATION, pgCode } from '../common/pg-errors';
 import type { Paged } from '../common/pagination';
@@ -112,6 +113,8 @@ export class TasksService {
       const r = await this.registry.resolveId(dto.robotId);
       if (!r) throw new AppError('VALIDATION_FAILED', '找不到機器人或已停用', { fields: { robotId: '找不到機器人或已停用' } });
       if (r.floor !== dto.floorId) throw new AppError('VALIDATION_FAILED', '指定的機器人不在這個樓層', { fields: { robotId: '不在這個樓層' } });
+      const missing = requiredCapsOf(dto.kind).filter((c) => !r.caps.includes(c));
+      if (missing.length) throw new AppError('VALIDATION_FAILED', `${r.code} 沒有這種任務需要的能力（${missing.join('、')}）`, { fields: { robotId: '能力不符' } });
     }
     const source = dto.source ?? 'manual';
     const status = initialStatus(

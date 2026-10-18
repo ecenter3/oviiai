@@ -15,6 +15,8 @@ UPDATE robots SET caps = array_append(caps, 'follow') WHERE code IN ('B2-001', '
 UPDATE robots SET caps = array_append(caps, 'talk_live') WHERE code IN ('B2-001', 'B2-002') AND adapter = 'mock' AND NOT ('talk_live' = ANY (caps));
 -- 萬為有螢幕：可顯示警示圖（T-42 音視頻管理；模擬器下載後只記錄）
 UPDATE robots SET caps = array_append(caps, 'screen') WHERE code IN ('ANBOT-001', 'ANBOT-002') AND adapter = 'mock' AND NOT ('screen' = ANY (caps));
+-- 模擬器都有環境感測器（T-41；robots.yaml 的 sensors）：環境監測、氣體檢測任務要 env 能力
+UPDATE robots SET caps = array_append(caps, 'env') WHERE adapter = 'mock' AND NOT ('env' = ANY (caps));
 
 -- 樓層尺寸（公尺）：只在尚未設定時填入，比例參考原型平面圖
 UPDATE floors SET width_m = 40, height_m = 36 WHERE id = '1f' AND width_m IS NULL;

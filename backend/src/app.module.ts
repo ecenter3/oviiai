@@ -32,6 +32,7 @@ import { ReportsModule } from './reports/reports.module';
 import { StatsModule } from './stats/stats.module';
 import { AssetsModule } from './assets/assets.module';
 import { RobotLogsModule } from './robot-logs/robot-logs.module';
+import { EnvModule } from './env/env.module';
 import { VersionsModule } from './versions/versions.module';
 
 @Module({
@@ -64,6 +65,7 @@ import { VersionsModule } from './versions/versions.module';
     StatsModule,
     AssetsModule,
     RobotLogsModule,
+    EnvModule,
     VersionsModule,
     RealtimeModule,
   ],

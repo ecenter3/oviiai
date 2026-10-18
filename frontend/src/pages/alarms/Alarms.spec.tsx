@@ -70,6 +70,7 @@ function setup(perms: string[], ui: ReactNode, opts: { items?: Alarm[]; rules?: 
       const m = /\/alarms\/([^/?]+)(\/(\w+))?$/.exec(url);
       if (m && !m[3]) return json({ ...items.find((a) => a.id === m[1]), events: [{ at: '2026-10-16T02:00:00Z', userName: '系統', from: null, to: 'open', note: '建立' }] });
       if (m && m[3] === 'transition') return json({ ...items.find((a) => a.id === m[1]), status: (JSON.parse(String(init!.body)) as { to: string }).to });
+      if (url.endsWith('/env/thresholds')) return json([{ kind: 'co', name: '一氧化碳', unit: 'ppm', min: null, max: 35, alarmType: 'gas', sort: 3 }]);
       if (url.endsWith('/alarm-rules') && init?.method === 'PUT') return json({ rules: opts.rules ?? [] });
       if (url.endsWith('/alarm-rules')) return json({ rules: opts.rules ?? [], users: [{ id: 'u1', username: 'admin', displayName: '系統管理員', hasPhone: true }] });
       return json({});
@@ -210,6 +211,8 @@ describe('告警設置', () => {
     const calls = setup(['alarmset'], <AlarmSettingsPage />, { rules });
     await screen.findByText('急停');
     expect(screen.getByText('系統告警')).toBeTruthy();
+    // 下方的環境數值門檻（T-41）
+    expect(((await screen.findByLabelText('一氧化碳 上限')) as HTMLInputElement).value).toBe('35');
     expect(screen.getByText('業務告警')).toBeTruthy();
     const save = screen.getByRole('button', { name: '儲存' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
