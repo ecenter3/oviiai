@@ -104,6 +104,8 @@ export interface ChargingFloorView {
 export class ChargingService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Charging');
   private timer?: NodeJS.Timeout;
+  /** 背景這一輪（關閉時要等它結束） */
+  private inflight: Promise<void> | null = null;
   private reconcileTimer?: NodeJS.Timeout;
   private subs: Subscription[] = [];
   private closing = false;
@@ -139,13 +141,12 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
       }),
     ];
     // 背景每 2 秒；上一輪還沒跑完（拿不到鎖）就跳過這一輪
-    this.timer = setInterval(
-      () =>
-        void (this.closing ? Promise.resolve() : this.withLock(() => this.tickLocked(), false)).catch((e) =>
-          this.log.error(e instanceof Error ? e.stack : String(e)),
-        ),
-      TICK_MS,
-    );
+    this.timer = setInterval(() => {
+      if (this.closing || this.inflight) return;
+      this.inflight = this.withLock('tick-bg', () => this.tickLocked(), false)
+        .catch((e) => this.log.error(e instanceof Error ? e.stack : String(e)))
+        .finally(() => (this.inflight = null));
+    }, TICK_MS);
     // 測試可關掉啟動時的自動對齊（CHARGE_RECONCILE_ON_START=false），改為直接呼叫 reconcile()
     if (process.env.CHARGE_RECONCILE_ON_START !== 'false') this.reconcileTimer = setTimeout(
       () => void this.reconcile().catch((e) => this.log.error(e instanceof Error ? e.stack : String(e))),
@@ -153,23 +154,28 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  onModuleDestroy() {
+  /**
+   * 關閉時等背景那一輪跑完：不等的話它會在資料庫、Redis 關掉後繼續跑（driver has already been destroyed），
+   * 也放不掉 charge:lock，下一個啟動的後端要等 TTL 過期才拿得到鎖（PR #19 審查第 2 點）
+   */
+  async onModuleDestroy() {
     this.closing = true;
     clearInterval(this.timer);
     clearTimeout(this.reconcileTimer);
     for (const s of this.subs) s.unsubscribe();
+    await this.inflight;
   }
 
   // ===== 對外 =====
 
   /** 回充請求（自動觸發或使用者按回充）。回傳送出的指令（前往樁或等候點）；人工模式回前往充電點的指令 */
   async request(robot: RobotInfo, source: 'auto' | 'user', userId: string | null = null): Promise<CmdRecord> {
-    return this.withLock(() => this.requestLocked(robot, source, userId));
+    return this.withLock('request', () => this.requestLocked(robot, source, userId));
   }
 
   /** 人工充電完成（人員按「完成充電」，或偵測到換電池） */
   async completeManual(robotId: string, by: string): Promise<boolean> {
-    return this.withLock(async () => {
+    return this.withLock('complete', async () => {
       const m = await this.manual(robotId);
       if (!m) return false;
       await this.redis.hdel(MANUAL, robotId);
@@ -208,7 +214,7 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
    * 反過來 Redis 有分配、DB 沒記：補寫 DB。啟動 15 秒後自動跑一次（等遙測進來）。
    */
   async reconcile(): Promise<{ restored: string[]; cleared: string[] }> {
-    return this.withLock(async () => {
+    return this.withLock('reconcile', async () => {
       const restored: string[] = [];
       const cleared: string[] = [];
       const assignments = await this.assignments();
@@ -253,7 +259,7 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
   /** 執行一輪（等到拿到鎖）。背景計時器另外每 2 秒跑一次 */
   async tick(): Promise<void> {
     if (this.closing) return;
-    await this.withLock(() => this.tickLocked());
+    await this.withLock('tick', () => this.tickLocked());
   }
 
   // ===== 內部 =====
@@ -601,8 +607,9 @@ export class ChargingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 所有分配在同一把鎖內：同一樁不會被兩台搭 */
-  private async withLock<T>(fn: () => Promise<T>, wait = true): Promise<T> {
-    const token = randomUUID();
+  private async withLock<T>(label: string, fn: () => Promise<T>, wait = true): Promise<T> {
+    // 鎖的值帶上哪一段、哪個程序、何時拿的：卡住時看得出是誰（PR #19 審查第 2 點）
+    const token = `${label}:${process.pid}:${new Date().toISOString()}:${randomUUID()}`;
     const deadline = Date.now() + 5_000;
     for (;;) {
       if ((await this.redis.set(LOCK, token, 'PX', LOCK_TTL_MS, 'NX')) === 'OK') break;

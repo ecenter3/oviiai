@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type Redis from 'ioredis';
 import mqtt, { type MqttClient } from 'mqtt';
+import { filter, firstValueFrom, timeout } from 'rxjs';
 import { io, type Socket } from 'socket.io-client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -74,12 +75,20 @@ describe.skipIf(!ready)('指令與遙控（e2e）', () => {
     return (await http().post('/api/v1/auth/login').send({ username, password: PW }).expect(200)).body.accessToken as string;
   }
 
+  /**
+   * 送遙測並等狀態生效。狀態有變時要等 fleet 發出 state 事件，不能只看即時狀態：即時狀態在寫狀態紀錄之前就更新，
+   * 訂閱 state 事件的處理（例：急停釋放遙控鎖）會晚一點才跑，可能蓋掉測試接著設定的資料（PR #19 審查第 2 點）。
+   * 訂閱者在事件發出時同步執行、先送出 Redis 指令，所以事件之後測試再下的 Redis 指令排在它後面。
+   */
   async function telemetry(state = 'idle') {
+    const fleet = app.get(FleetService);
+    const changed = fleet.get(CODE)?.state !== state;
+    const seen = changed ? firstValueFrom(fleet.events$.pipe(filter((e) => e.type === 'state' && e.robot.code === CODE && e.to === state), timeout(5000))) : null;
     await adapter.publishAsync(
       `rms/robot/${CODE}/telemetry`,
       JSON.stringify({ ts: Date.now(), pose: { x: 1, y: 1, yaw: 0, floor: '1f' }, battery: { pct: 80, charging: false }, state, faults: [] }),
     );
-    await until(() => app.get(FleetService).get(CODE)?.state === state);
+    await (seen ?? until(() => fleet.get(CODE)?.state === state));
   }
 
   function connect(token: string) {
