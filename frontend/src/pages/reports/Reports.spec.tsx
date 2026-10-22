@@ -70,7 +70,8 @@ describe('能耗管理（T-39）', () => {
     const calls = setup(<EnergyPage />, { '/robots': ROBOTS, '/energy/r1': energy });
     await screen.findByText('B2-001 · 即時');
     for (const name of ['電壓（V）', '電量（%）', '耗電量（%/h）', '電流（A）']) expect(screen.getByRole('img', { name })).toBeTruthy();
-    const rt = calls.find((c) => c.includes('/energy/r1'))!;
+    // 機器人代碼先顯示，能耗查詢在下一輪 effect 才送出（CI 較慢時 find 會落空 → NaN；PR #19 審查第 2 點）
+    const rt = await waitFor(() => calls.find((c) => c.includes('/energy/r1')) ?? Promise.reject(new Error('還沒送出能耗查詢')));
     const q = new URL(rt, 'http://x').searchParams;
     expect(Date.parse(q.get('to')!) - Date.parse(q.get('from')!)).toBe(60_000);
 

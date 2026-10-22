@@ -116,10 +116,13 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     this.sweeper = setInterval(() => safe(this.sweep()), SWEEP_MS);
   }
 
-  onModuleDestroy() {
+  /** 關閉時等進行中的那一輪放掉樓層鎖（同充電排程；不等的話鎖要等 TTL 過期，下一個後端那層樓會延遲派工） */
+  async onModuleDestroy() {
     this.closing = true;
     clearInterval(this.sweeper);
     for (const s of this.subs) s.unsubscribe();
+    const end = Date.now() + LOCK_TTL_MS;
+    while (this.running.size && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
   }
 
   /** 保底掃描：暫停原因檢查、審批到期、各樓層補一輪 */
@@ -139,6 +142,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     this.pending.add(floor);
     setTimeout(() => {
       this.pending.delete(floor);
+      if (this.closing) return;
       void this.runFloor(floor).catch((e) => this.log.error(`派工 ${floor}：${e instanceof Error ? e.stack : e}`));
     }, 0);
   }

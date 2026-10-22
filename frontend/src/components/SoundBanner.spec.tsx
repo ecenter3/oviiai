@@ -1,18 +1,22 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { enableAudio, useAudioReady } from '../realtime/sound';
-
-function Probe() {
-  return <div data-testid="ready">{String(useAudioReady())}</div>;
-}
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // 失敗或逾時也要拿掉 mock，不影響下一個測試
+  vi.doUnmock('../realtime/sound');
+  vi.doUnmock('../realtime/socket');
 });
 
 describe('提示音啟用狀態（PR #9 審查第 2 點）', () => {
-  it('還沒互動前為未啟用；enableAudio 後變成已啟用並通知畫面', () => {
+  it('還沒互動前為未啟用；enableAudio 後變成已啟用並通知畫面', async () => {
+    // 啟用狀態存在模組裡：每次重新載入，重複執行（--repeats）時才不會沿用上一次的「已啟用」
+    vi.resetModules();
+    const { enableAudio, useAudioReady } = await import('../realtime/sound');
+    function Probe() {
+      return <div data-testid="ready">{String(useAudioReady())}</div>;
+    }
     class FakeCtx {
       state = 'running';
       addEventListener() {}
@@ -29,7 +33,8 @@ describe('提示音啟用狀態（PR #9 審查第 2 點）', () => {
 });
 
 describe('頁首橫幅', () => {
-  it('Layout 在提示音未啟用時顯示「提示音尚未啟用，點此啟用」', async () => {
+  // 重新載入整個 Layout 的模組樹，負載高時（CI、重複執行）超過預設 5 秒（PR #19 審查第 2 點）
+  it('Layout 在提示音未啟用時顯示「提示音尚未啟用，點此啟用」', { timeout: 30_000 }, async () => {
     vi.resetModules();
     const ready = { v: false };
     vi.doMock('../realtime/sound', () => ({
@@ -56,7 +61,5 @@ describe('頁首橫幅', () => {
     fireEvent.click(b);
     const sound = await import('../realtime/sound');
     expect(sound.enableAudio).toHaveBeenCalled();
-    vi.doUnmock('../realtime/sound');
-    vi.doUnmock('../realtime/socket');
   });
 });

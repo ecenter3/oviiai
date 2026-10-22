@@ -52,7 +52,8 @@
 ```bash
 make up            # 起資料庫、Redis、EMQX、S3
 make down
-make test          # 全部測試（contracts、轉接器、後端、前端）
+make test          # 靜態檢查（ruff、tsc 含測試檔）＋全部測試（contracts、轉接器、後端、前端）
+make ci            # 推送前跑：完整模擬 CI（make test＋migration 來回（暫存資料庫）＋建置）
 make seed-mock     # 登記模擬場域：6 台機器人、樓層尺寸、充電樁、攝影機（後端只接受已登記的機器人）
 make mock          # 啟動模擬機器人（3 品牌各 2 台）
 make contracts     # 改了 packages/contracts 後重新編譯，後端才看得到
@@ -68,4 +69,4 @@ cd frontend && npm run dev
 ## 提交
 - 分支：`main` 受保護；功能分支 `feat/<模組>-<簡述>`，PR 合併。
 - Commit 訊息用中文或英文皆可，第一行 ≤ 72 字。
-- PR 前必須 `make test` 通過。
+- PR 前必須 `make ci` 通過（與 CI 相同的檢查；只跑 `make test` 會漏掉 migration 來回與建置）。

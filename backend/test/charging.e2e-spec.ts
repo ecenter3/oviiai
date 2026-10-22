@@ -99,7 +99,10 @@ describe.skipIf(!ready)('充電排程（e2e）', () => {
   async function sameRound(fn: () => Promise<void>) {
     const redis = app.get<Redis>(REDIS);
     const token = `e2e-${tag}-${Date.now()}`;
-    await until(async () => (await redis.set('charge:lock', token, 'PX', 10_000, 'NX')) === 'OK');
+    await until(async () => (await redis.set('charge:lock', token, 'PX', 10_000, 'NX')) === 'OK').catch(async (e) => {
+      // 拿不到鎖：列出持有者（段落:pid:時間）與剩餘 TTL，查偶發失敗用
+      throw new Error(`${e.message}：charge:lock 被 ${await redis.get('charge:lock')} 持有，剩 ${await redis.pttl('charge:lock')} ms（本程序 pid ${process.pid}）`);
+    });
     try {
       await fn();
     } finally {
